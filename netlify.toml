@@ -1,0 +1,30 @@
+# netlify.toml
+# Konfiguration für Praxis-Software
+# Dieses File in den Root-Ordner ZahnlaborApp/praxis/ legen
+
+[build]
+  publish = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+# Redirects: alle Routen → index.html (SPA)
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+# Functions: kein extra Timeout nötig für SMS/Email
+# Für Claude Vision (größere Bilder) etwas mehr Zeit geben
+[functions]
+  included_files = []
+
+[functions."ai-analyze"]
+  timeout = 30
+
+[functions."send-sms"]
+  timeout = 15
+
+[functions."send-email"]
+  timeout = 15

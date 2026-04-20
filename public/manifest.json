@@ -1,0 +1,19 @@
+{
+  "name": "Mothe App — Die 3 Zahnärzte",
+  "short_name": "Mothe App",
+  "description": "Labor-App für Die 3 Zahnärzte by Mahal",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0F0F1A",
+  "theme_color": "#2D1F1F",
+  "lang": "de",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Aufträge", "url": "/", "description": "Auftragsliste öffnen" }
+  ]
+}

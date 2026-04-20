@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Mothe App"/>
+  <meta name="theme-color" content="#2D1F1F"/>
+  <meta name="description" content="Mothe App — Labor-App für Die 3 Zahnärzte by Mahal"/>
+
+  <title>Mothe App</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.json"/>
+
+  <!-- Apple Touch Icons -->
+  <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png"/>
+  <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png"/>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="/icon-192.png"/>
+
+  <!-- Splash screen background für iOS -->
+  <style>
+    html, body { margin:0; padding:0; background:#0F0F1A; min-height:100vh; }
+    #root { min-height:100vh; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React + ReactDOM (Produktions-Build wird hier durch Vite/npm build eingesetzt) -->
+  <script type="module" src="/src/main.jsx"></script>
+
+  <!-- Service Worker registrieren -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('[SW] registered:', reg.scope))
+          .catch(err => console.warn('[SW] registration failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>
