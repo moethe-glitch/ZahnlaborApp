@@ -3,8 +3,8 @@ import { useState, useEffect, useRef, useCallback, Component } from "react";
 // ═══════════════════════════════════════════════════════════════════════
 // § CONFIG
 // ═══════════════════════════════════════════════════════════════════════
-const SB_URL  = "IHRE_SUPABASE_URL";
-const SB_KEY  = "IHR_SUPABASE_ANON_KEY";
+const SB_URL  = "https://rfoiokhambyjewpauytn.supabase.co";
+const SB_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJmb2lva2hhbWJ5amV3cGF1eXRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyMzgwMTEsImV4cCI6MjA5MTgxNDAxMX0.Lokl1HrFSx2HSJJFQjd5oM31NfeB3cbyso3nDvdB8bc";
 const isConf  = () => SB_URL !== "IHRE_SUPABASE_URL";
 const MISSED_MS = 3 * 60 * 1000; // 3 Minuten bis "verpasst"
 
