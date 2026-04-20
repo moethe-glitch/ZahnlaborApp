@@ -1363,7 +1363,13 @@ function ChatScreen({ auftragId, auftrag, user, onBack, onMarkRead }) {
     if (!isConf()) { setLoading(false); return; }
     try {
       const d = await DB.nachrichten.byOrder(auftragId);
-      setMsgs(Array.isArray(d) ? d : []);
+      const fresh = Array.isArray(d) ? d : [];
+      // Merge: keep any _pending or _failed local messages not yet in DB
+      setMsgs(prev => {
+        const dbIds = new Set(fresh.map(m => m.id));
+        const localOnly = prev.filter(m => (m._pending || m._failed) && !dbIds.has(m.id));
+        return [...fresh, ...localOnly].sort((a, b) => new Date(a.erstellt_am) - new Date(b.erstellt_am));
+      });
       const unread = (Array.isArray(d) ? d : []).filter(m => { const seen = Array.isArray(m.gelesen_von) ? m.gelesen_von : []; return ss(m.absender) !== myName && !seen.includes(myName); });
       for (const m of unread) { const seen = Array.isArray(m.gelesen_von) ? m.gelesen_von : []; await DB.nachrichten.markRead(m.id, [...seen, myName]).catch(() => {}); }
       if (unread.length > 0) onMarkRead?.(auftragId);
@@ -1377,13 +1383,38 @@ function ChatScreen({ auftragId, auftrag, user, onBack, onMarkRead }) {
 
   const send = async () => {
     if (!text.trim() || sending) return;
-    const t = text.trim(); setText("");
+    const t = text.trim();
+    setText("");
     setSending(true);
-    const msg = { id: genId(), auftrag_id: auftragId, absender: myName, text: t, erstellt_am: new Date().toISOString(), gelesen_von: [myName] };
-    setMsgs(p => [...p, msg]);
+
+    // Optimistic message with stable tempId so polling merge won't remove it
+    const tempId   = "tmp_" + genId();
+    const now      = new Date().toISOString();
+    const localMsg = { id: tempId, auftrag_id: auftragId, absender: myName, text: t, erstellt_am: now, gelesen_von: [myName], _pending: true };
+    setMsgs(p => [...p, localMsg]);
+
     if (isConf()) {
-      try { await DB.nachrichten.insert({ auftrag_id: auftragId, absender: myName, text: t, gelesen_von: JSON.stringify([myName]) }); }
-      catch { setMsgs(p => p.filter(m => m.id !== msg.id)); }
+      try {
+        console.log("[Chat] Sending:", { auftrag_id: auftragId, absender: myName, text: t });
+        const res = await DB.nachrichten.insert({
+          auftrag_id:  auftragId,
+          absender:    myName,
+          text:        t,
+          erstellt_am: now,
+          gelesen_von: JSON.stringify([myName]),
+        });
+        console.log("[Chat] Insert OK:", res);
+        // Replace optimistic with confirmed row
+        const confirmed = Array.isArray(res) && res[0] ? { ...res[0], gelesen_von: [myName] } : { ...localMsg, _pending: false };
+        setMsgs(p => p.map(m => m.id === tempId ? confirmed : m));
+      } catch (err) {
+        console.error("[Chat] Insert FAILED:", err);
+        // Mark as failed — stays visible so user sees it, NOT silently removed
+        setMsgs(p => p.map(m => m.id === tempId ? { ...m, _pending: false, _failed: true } : m));
+      }
+    } else {
+      // Demo mode — confirm immediately
+      setMsgs(p => p.map(m => m.id === tempId ? { ...m, _pending: false } : m));
     }
     setSending(false);
   };
@@ -1431,10 +1462,12 @@ function ChatScreen({ auftragId, auftrag, user, onBack, onMarkRead }) {
           return (
             <div key={m.id} style={{ display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start", marginBottom: 10, animation: "fadeUp .22s cubic-bezier(.22,1,.36,1)" }}>
               {!isMine && <div style={{ fontSize: 11, color: C.fog, fontWeight: 600, marginBottom: 3, paddingLeft: 4 }}>{ss(m.absender)}</div>}
-              <div style={{ maxWidth: "78%", background: isMine ? `linear-gradient(135deg,${C.sage},${C.sageDk})` : C.white, color: isMine ? C.white : C.ink, borderRadius: isMine ? "20px 20px 4px 20px" : "20px 20px 20px 4px", padding: "12px 16px", fontSize: 15, lineHeight: 1.48, boxShadow: isMine ? "none" : "0 2px 10px rgba(28,25,23,0.09)" }}>
+              <div style={{ maxWidth: "78%", background: m._failed ? C.errLt : isMine ? `linear-gradient(135deg,${C.sage},${C.sageDk})` : C.white, color: m._failed ? C.err : isMine ? C.white : C.ink, borderRadius: isMine ? "20px 20px 4px 20px" : "20px 20px 20px 4px", padding: "12px 16px", fontSize: 15, lineHeight: 1.48, boxShadow: isMine ? "none" : "0 2px 10px rgba(28,25,23,0.09)", opacity: m._pending ? 0.6 : 1 }}>
                 {ss(m.text)}
               </div>
-              <div style={{ fontSize: 10, color: C.fog, marginTop: 3, paddingLeft: 4, paddingRight: 4 }}>{fmtTime(m.erstellt_am)}</div>
+              <div style={{ fontSize: 10, color: m._failed ? C.err : C.fog, marginTop: 3, paddingLeft: 4, paddingRight: 4 }}>
+                {m._failed ? "❌ Nicht gesendet — tippe zum Wiederholen" : m._pending ? "⏳ Wird gesendet…" : fmtTime(m.erstellt_am)}
+              </div>
             </div>
           );
         })}
