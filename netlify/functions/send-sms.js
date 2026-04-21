@@ -41,9 +41,9 @@ exports.handler = async (event) => {
     return { statusCode:400, headers, body:JSON.stringify({ success:false, error:"Ungültige Telefonnummer. Format: +49170..." }) };
   }
 
-  const sid   = process.env.TWILIO_SID;
-  const token = process.env.TWILIO_TOKEN;
-  const from  = process.env.TWILIO_VON;
+  const sid   = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from  = process.env.TWILIO_FROM_NUMBER;
   if (!sid || !token || !from) {
     console.error("[send-sms] Twilio env vars missing");
     return { statusCode:503, headers, body:JSON.stringify({ success:false, error:"SMS-Dienst nicht konfiguriert" }) };

@@ -785,18 +785,23 @@ function FotoSheet({ auftragId, onClose, onUploaded }) {
 // ═══════════════════════════════════════════════════════════════════════
 function SmsSheet({ auftrag, onClose }) {
   const vl = getSmsVl();
-  const [text, setText] = useState(vl[0]?.text || "");
-  const [sending, setSending] = useState(false); const [sent, setSent] = useState(false); const [err, setErr] = useState(null);
-  const phone = ss(auftrag?.telefon || auftrag?.zahnarzt_telefon);
+  const [text,      setText]     = useState(vl[0]?.text || "");
+  const [phoneInput,setPhoneInput]= useState(ss(auftrag?.telefon || auftrag?.zahnarzt_telefon));
+  const [sending,   setSending]  = useState(false);
+  const [sent,      setSent]     = useState(false);
+  const [err,       setErr]      = useState(null);
 
   const send = async () => {
     if (!text.trim()) return;
+    if (!phoneInput.trim()) { setErr("Bitte Telefonnummer eingeben"); return; }
     setSending(true); setErr(null);
     try {
-      const res = await fetch("/.netlify/functions/send-sms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: phone || "+4900000000", message: text }) });
-      if (!res.ok) throw new Error("Fehler");
+      const res = await fetch("/.netlify/functions/send-sms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: phoneInput.trim(), message: text }) });
+      let data = {};
+      try { data = await res.json(); } catch {}
+      if (!res.ok) throw new Error(data.error || "Fehler");
       setSent(true); setTimeout(onClose, 2000);
-    } catch { setErr("SMS konnte nicht gesendet werden — Verbindung prüfen"); }
+    } catch(e) { setErr(e.message || "SMS konnte nicht gesendet werden — Verbindung prüfen"); }
     setSending(false);
   };
 
@@ -812,8 +817,11 @@ function SmsSheet({ auftrag, onClose }) {
           <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
             {vl.map(v => <button key={v.id} onClick={() => setText(v.text)} className="btn-press" style={{ flexShrink: 0, padding: "8px 14px", background: C.sageLt, color: C.sageDk, border: "none", borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{v.name}</button>)}
           </div>
-          <div style={{ background: C.parch, borderRadius: 14, padding: "12px 16px", fontSize: 14, color: C.inkMd }}>
-            <span style={{ fontWeight: 600, color: C.fog, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>An: </span>{phone || "Keine Nummer hinterlegt"}
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: C.fog, textTransform: "uppercase", letterSpacing: "0.6px", display: "block", marginBottom: 6 }}>Telefonnummer</label>
+            <input value={phoneInput} onChange={e => setPhoneInput(e.target.value)}
+              type="tel" placeholder="+49170..." inputMode="tel"
+              style={{ width: "100%", background: C.white, border: `1.5px solid ${C.sand}`, borderRadius: 14, padding: "13px 16px", fontSize: 16, color: C.ink, boxSizing: "border-box", fontFamily: "inherit" }} />
           </div>
           <textarea value={text} onChange={e => setText(e.target.value)} rows={4}
             style={{ background: C.white, border: `1.5px solid ${C.sand}`, borderRadius: 14, padding: "14px 16px", fontSize: 16, color: C.ink, resize: "none", fontFamily: "inherit", boxSizing: "border-box", width: "100%" }} placeholder="Nachricht…" />
