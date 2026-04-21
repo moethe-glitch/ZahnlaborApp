@@ -1381,13 +1381,41 @@ function ChatScreen({ auftragId, auftrag, user, onBack, onMarkRead }) {
   useEffect(() => { const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
   useEffect(() => { if (bottomRef.current) { bottomRef.current.scrollIntoView({ behavior: "auto", block: "end" }); } }, [msgs.length]);
 
+  // ── RETRY: resend a failed message ──────────────────────────────
+  const retrySend = async (failedMsg) => {
+    if (!auftragId) return;
+    // Reset to pending
+    setMsgs(p => p.map(m => m.id === failedMsg.id ? { ...m, _failed: false, _pending: true } : m));
+    try {
+      const res = await DB.nachrichten.insert({
+        auftrag_id:  auftragId,
+        absender:    ss(failedMsg.absender),
+        text:        ss(failedMsg.text),
+        erstellt_am: failedMsg.erstellt_am || new Date().toISOString(),
+        gelesen_von: [myName],
+      });
+      console.log("[Chat] Retry OK:", res);
+      const confirmed = Array.isArray(res) && res[0]
+        ? { ...res[0], gelesen_von: [myName] }
+        : { ...failedMsg, _pending: false, _failed: false };
+      setMsgs(p => p.map(m => m.id === failedMsg.id ? confirmed : m));
+    } catch (err) {
+      console.error("[Chat] Retry FAILED:", err);
+      setMsgs(p => p.map(m => m.id === failedMsg.id ? { ...m, _pending: false, _failed: true } : m));
+    }
+  };
+
   const send = async () => {
     if (!text.trim() || sending) return;
+    // Guard: auftrag_id must exist
+    if (!auftragId) {
+      console.error("[Chat] auftrag_id fehlt — Senden blockiert");
+      return;
+    }
     const t = text.trim();
     setText("");
     setSending(true);
 
-    // Optimistic message with stable tempId so polling merge won't remove it
     const tempId   = "tmp_" + genId();
     const now      = new Date().toISOString();
     const localMsg = { id: tempId, auftrag_id: auftragId, absender: myName, text: t, erstellt_am: now, gelesen_von: [myName], _pending: true };
@@ -1395,25 +1423,25 @@ function ChatScreen({ auftragId, auftrag, user, onBack, onMarkRead }) {
 
     if (isConf()) {
       try {
-        console.log("[Chat] Sending:", { auftrag_id: auftragId, absender: myName, text: t });
+        console.log("[Chat] Sending payload:", { auftrag_id: auftragId, absender: myName, text: t, erstellt_am: now });
         const res = await DB.nachrichten.insert({
           auftrag_id:  auftragId,
           absender:    myName,
           text:        t,
           erstellt_am: now,
-          gelesen_von: JSON.stringify([myName]),
+          gelesen_von: [myName],
         });
-        console.log("[Chat] Insert OK:", res);
-        // Replace optimistic with confirmed row
-        const confirmed = Array.isArray(res) && res[0] ? { ...res[0], gelesen_von: [myName] } : { ...localMsg, _pending: false };
+        console.log("[Chat] Supabase response:", JSON.stringify(res));
+        const confirmed = Array.isArray(res) && res[0]
+          ? { ...res[0], gelesen_von: [myName] }
+          : { ...localMsg, _pending: false };
         setMsgs(p => p.map(m => m.id === tempId ? confirmed : m));
       } catch (err) {
-        console.error("[Chat] Insert FAILED:", err);
-        // Mark as failed — stays visible so user sees it, NOT silently removed
+        console.error("[Chat] Insert error:", err?.message || err);
         setMsgs(p => p.map(m => m.id === tempId ? { ...m, _pending: false, _failed: true } : m));
       }
     } else {
-      // Demo mode — confirm immediately
+      // Demo mode
       setMsgs(p => p.map(m => m.id === tempId ? { ...m, _pending: false } : m));
     }
     setSending(false);
@@ -1462,12 +1490,23 @@ function ChatScreen({ auftragId, auftrag, user, onBack, onMarkRead }) {
           return (
             <div key={m.id} style={{ display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start", marginBottom: 10, animation: "fadeUp .22s cubic-bezier(.22,1,.36,1)" }}>
               {!isMine && <div style={{ fontSize: 11, color: C.fog, fontWeight: 600, marginBottom: 3, paddingLeft: 4 }}>{ss(m.absender)}</div>}
-              <div style={{ maxWidth: "78%", background: m._failed ? C.errLt : isMine ? `linear-gradient(135deg,${C.sage},${C.sageDk})` : C.white, color: m._failed ? C.err : isMine ? C.white : C.ink, borderRadius: isMine ? "20px 20px 4px 20px" : "20px 20px 20px 4px", padding: "12px 16px", fontSize: 15, lineHeight: 1.48, boxShadow: isMine ? "none" : "0 2px 10px rgba(28,25,23,0.09)", opacity: m._pending ? 0.6 : 1 }}>
-                {ss(m.text)}
-              </div>
-              <div style={{ fontSize: 10, color: m._failed ? C.err : C.fog, marginTop: 3, paddingLeft: 4, paddingRight: 4 }}>
-                {m._failed ? "❌ Nicht gesendet — tippe zum Wiederholen" : m._pending ? "⏳ Wird gesendet…" : fmtTime(m.erstellt_am)}
-              </div>
+              {/* _failed: tappable retry block */}
+              {m._failed ? (
+                <button onClick={() => retrySend(m)} className="btn-press"
+                  style={{ maxWidth: "78%", background: C.errLt, color: C.err, border: `1.5px solid ${C.err}44`, borderRadius: "20px 20px 4px 20px", padding: "12px 16px", fontSize: 15, lineHeight: 1.48, textAlign: "left", fontFamily: "inherit", cursor: "pointer", display: "block" }}>
+                  {ss(m.text)}
+                  <div style={{ fontSize: 11, fontWeight: 700, marginTop: 6, color: C.err }}>❌ Nicht gesendet — Tippen zum Wiederholen</div>
+                </button>
+              ) : (
+                <div style={{ maxWidth: "78%", background: isMine ? `linear-gradient(135deg,${C.sage},${C.sageDk})` : C.white, color: isMine ? C.white : C.ink, borderRadius: isMine ? "20px 20px 4px 20px" : "20px 20px 20px 4px", padding: "12px 16px", fontSize: 15, lineHeight: 1.48, boxShadow: isMine ? "none" : "0 2px 10px rgba(28,25,23,0.09)", opacity: m._pending ? 0.6 : 1 }}>
+                  {ss(m.text)}
+                </div>
+              )}
+              {!m._failed && (
+                <div style={{ fontSize: 10, color: C.fog, marginTop: 3, paddingLeft: 4, paddingRight: 4 }}>
+                  {m._pending ? "⏳ Wird gesendet…" : fmtTime(m.erstellt_am)}
+                </div>
+              )}
             </div>
           );
         })}
