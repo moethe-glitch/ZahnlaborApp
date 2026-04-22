@@ -1598,7 +1598,7 @@ function ChatOverview({ auftraege, unread, chatPreview, missed, allMsgs, userNam
 // ═══════════════════════════════════════════════════════════════════════
 function NewAuftragSheet({ patienten, onSave, onClose }) {
   const TYPES = ["Krone","Brücke","Prothese","Implant","Veneer","Inlay","Schiene","Zahnersatz","Reparatur","Andere"];
-  const [form,   setForm]   = useState({ patient: "", zahnarzt: "", arbeitstyp: "Krone", farbe: "", faelligkeit: "", anweisungen: "", dringend: false, grund_rueck: "" });
+  const [form,   setForm]   = useState({ patient: "", zahnarzt: "", arbeitstyp: "Krone", farbe: "", faelligkeit: "", anweisungen: "", dringend: false, grund_rueck: "", prioritaet: "Normal", geburtsdatum: "", zahn: "" });
   const [saving, setSaving] = useState(false); const [err, setErr] = useState(null); const [done, setDone] = useState(false);
   const [showPat, setShowPat] = useState(false);
   const set = useCallback((k, v) => setForm(p => ({ ...p, [k]: v })), []);
@@ -1606,7 +1606,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
   const patSuggestions = (patienten || []).filter(p => ss(p.name).toLowerCase().includes(form.patient.toLowerCase()) && form.patient.length > 0);
 
   const save = async () => {
-    if (!form.patient.trim() || !form.zahnarzt.trim()) { setErr("Patient und Zahnarzt sind Pflichtfelder"); return; }
+    if (!form.patient.trim() || !form.zahnarzt.trim() || !form.faelligkeit || !form.geburtsdatum || !form.anweisungen.trim()) { setErr("Bitte alle Pflichtfelder ausfüllen (Patient, Zahnarzt, Fälligkeit, Geburtsdatum, Anweisungen)"); return; }
     setSaving(true); setErr(null);
     const a = { ...form, id: genId(), status: "Eingang", eingang: today(), verlauf: JSON.stringify([{ datum: today(), status: "Eingang", notiz: "" }]), fotos: "[]", created_at: new Date().toISOString() };
     try {
@@ -1650,6 +1650,8 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
         </div>
 
         <FormInput label="Farbe / Shade" value={form.farbe} onChange={v => set("farbe", v)} placeholder="z.B. A2, BL2" />
+        <FormInput label="Zahn-Nummer" value={form.zahn} onChange={v => set("zahn", v)} placeholder="z.B. 36, 37" />
+        <FormInput label="Geburtsdatum" value={form.geburtsdatum} onChange={v => set("geburtsdatum", v)} type="date" required />
         <FormInput label="Fälligkeitsdatum" value={form.faelligkeit} onChange={v => set("faelligkeit", v)} type="date" />
 
         {/* Anweisungen */}
@@ -1660,6 +1662,17 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
         </div>
 
         {/* Dringend Toggle */}
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: C.fog, textTransform: "uppercase", letterSpacing: "0.6px", display: "block", marginBottom: 8 }}>Priorität</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {["Normal","Dringend","Notfall"].map(p => (
+              <button key={p} onClick={() => set("prioritaet", p)} className="btn-press"
+                style={{ flex: 1, padding: "11px 8px", borderRadius: 12, border: `1.5px solid ${form.prioritaet === p ? (p === "Normal" ? C.sage : C.err) : C.sand}`, background: form.prioritaet === p ? (p === "Normal" ? C.sageLt : C.errLt) : C.white, color: form.prioritaet === p ? (p === "Normal" ? C.sageDk : C.err) : C.inkMd, fontSize: 13, fontWeight: form.prioritaet === p ? 700 : 400, cursor: "pointer", fontFamily: "inherit" }}>
+                {p === "Normal" ? "✓ Normal" : p === "Dringend" ? "🔴 Dringend" : "🚨 Notfall"}
+              </button>
+            ))}
+          </div>
+        </div>
         <div onClick={() => set("dringend", !form.dringend)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: form.dringend ? C.errLt : C.white, border: `1.5px solid ${form.dringend ? C.err : C.sand}`, borderRadius: 16, padding: "16px 18px", cursor: "pointer", transition: "all .2s", boxShadow: "0 1px 4px rgba(28,25,23,0.05)" }}>
           <span style={{ fontSize: 16, fontWeight: 600, color: form.dringend ? C.err : C.inkMd }}>🔴 Dringend markieren</span>
           <div style={{ width: 50, height: 30, borderRadius: 15, background: form.dringend ? C.err : C.sand, position: "relative", transition: "background .2s", flexShrink: 0, boxShadow: "inset 0 1px 3px rgba(0,0,0,0.14)" }}>
@@ -1687,9 +1700,17 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
   const [showSms,    setShowSms]    = useState(false);
   const [showFoto,   setShowFoto]   = useState(false);
   const [localA,     setLocalA]     = useState(a);
-  const swipeRef = useSwipeBack(onBack, !showStatus && !showSms && !showFoto);
+  const [showAnw,    setShowAnw]    = useState(false);
+  const [anwText,    setAnwText]    = useState(ss(a.anweisungen));
+  const swipeRef = useSwipeBack(onBack, !showStatus && !showSms && !showFoto && !showAnw);
 
-  useEffect(() => { setLocalA(a); }, [a]);
+  useEffect(() => {
+    if (!showAnw) {
+      const aTime = a?.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const lTime = localA?.updated_at ? new Date(localA.updated_at).getTime() : 0;
+      if (aTime >= lTime) { setLocalA(a); setAnwText(ss(a.anweisungen)); }
+    }
+  }, [a]);
 
   const handleStatus = async s => {
     const prev = ss(localA.status);
@@ -1743,6 +1764,7 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
             { icon: "📷", label: "Foto",           action: () => setShowFoto(true),  accent: C.goldDk },
             { icon: "📱", label: "SMS",            action: () => setShowSms(true),   accent: C.pur },
             { icon: "🤖", label: "KI-Hinweise",  action: () => onOpenAIHints?.(localA), accent: C.gold },
+            { icon: "✏️",  label: "Anweisungen", action: () => { setAnwText(ss(localA.anweisungen)); setShowAnw(true); }, accent: C.ink },
           ].map(btn => (
             <button key={btn.label} onClick={btn.action} className="btn-press"
               style={{ background: C.white, border: `1.5px solid ${C.sand}`, borderRadius: 18, padding: "18px 12px", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 2px 12px rgba(28,25,23,0.07)" }}>
@@ -1763,7 +1785,9 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
             <InfoRow label="Farbe"     value={localA.farbe} />
             <InfoRow label="Eingang"   value={fmtDate(localA.eingang)} />
             <InfoRow label="Fällig"    value={fmtDate(localA.faelligkeit)} accent={isLate(localA) ? C.err : undefined} />
-            {localA.dringend && <InfoRow label="Priorität" value="🔴 Dringend" accent={C.err} />}
+            {localA.zahn && <InfoRow label="Zahn" value={ss(localA.zahn)} />}
+            {localA.geburtsdatum && <InfoRow label="Geburtsdatum" value={fmtDate(localA.geburtsdatum)} />}
+            {localA.prioritaet && <InfoRow label="Priorität" value={localA.prioritaet === "Notfall" ? "🚨 Notfall" : localA.prioritaet === "Dringend" ? "🔴 Dringend" : localA.dringend ? "🔴 Dringend" : "✓ Normal"} accent={localA.prioritaet === "Normal" ? undefined : C.err} />}
             {localA.anweisungen && <InfoRow label="Anweisungen" value={ss(localA.anweisungen)} last />}
           </div>
         </Card>
@@ -1807,6 +1831,28 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
       {showStatus && <StatusSheet current={ss(localA.status)} onSelect={handleStatus} onClose={() => setShowStatus(false)} />}
       {showSms    && <SmsSheet auftrag={localA} onClose={() => setShowSms(false)} />}
       {showFoto   && <FotoSheet auftragId={localA.id} onClose={() => setShowFoto(false)} onUploaded={url => setLocalA(p => ({ ...p, fotos: [...(Array.isArray(p.fotos) ? p.fotos : []), url] }))} />}
+      {showAnw && (
+        <Sheet onClose={() => setShowAnw(false)} title="Anweisungen bearbeiten">
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <textarea value={anwText} onChange={e => setAnwText(e.target.value)} rows={6}
+              style={{ background: C.white, border: `1.5px solid ${C.sand}`, borderRadius: 14, padding: "14px 16px", fontSize: 16, color: C.ink, resize: "none", fontFamily: "inherit", boxSizing: "border-box", width: "100%" }}
+              placeholder="Anweisungen für den Techniker…" />
+            <button onClick={async () => {
+              const upd = { ...localA, anweisungen: anwText, updated_at: new Date().toISOString() };
+              setLocalA(upd);
+              setShowAnw(false);
+              if (isConf()) {
+                try { await DB.auftraege.update(localA.id, { anweisungen: anwText, updated_at: upd.updated_at }); }
+                catch { setLocalA(p => ({ ...p, anweisungen: localA.anweisungen })); }
+              }
+              onUpdated?.(upd);
+            }} className="btn-press"
+              style={{ background: `linear-gradient(135deg,${C.sage},${C.sageDk})`, color: C.white, border: "none", borderRadius: 16, padding: "16px", fontSize: 16, fontWeight: 700, cursor: "pointer", boxShadow: `0 6px 24px ${C.sage}44` }}>
+              ✅ Speichern
+            </button>
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }
