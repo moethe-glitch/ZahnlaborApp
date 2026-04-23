@@ -1598,17 +1598,110 @@ function ChatOverview({ auftraege, unread, chatPreview, missed, allMsgs, userNam
 // ═══════════════════════════════════════════════════════════════════════
 function NewAuftragSheet({ patienten, onSave, onClose }) {
   const TYPES = ["Krone","Brücke","Prothese","Implant","Veneer","Inlay","Schiene","Zahnersatz","Reparatur","Andere"];
-  const [form,   setForm]   = useState({ patient: "", zahnarzt: "", arbeitstyp: "Krone", farbe: "", faelligkeit: "", anweisungen: "", dringend: false, grund_rueck: "", prioritaet: "Normal", geburtsdatum: "", zahn: "" });
-  const [saving, setSaving] = useState(false); const [err, setErr] = useState(null); const [done, setDone] = useState(false);
-  const [showPat, setShowPat] = useState(false);
-  const set = useCallback((k, v) => setForm(p => ({ ...p, [k]: v })), []);
 
+  // ── Mode: voice | manual ──────────────────────────────────────
+  const [mode,      setMode]      = useState("choose"); // choose | recording | processing | review | manual
+  const [form,      setForm]      = useState({ patient: "", zahnarzt: "", arbeitstyp: "Krone", farbe: "", faelligkeit: "", anweisungen: "", dringend: false, grund_rueck: "", prioritaet: "Normal", geburtsdatum: "", zahn: "" });
+  const [saving,    setSaving]    = useState(false);
+  const [err,       setErr]       = useState(null);
+  const [done,      setDone]      = useState(false);
+  const [showPat,   setShowPat]   = useState(false);
+
+  // ── Voice states ──────────────────────────────────────────────
+  const [transkript,  setTranskript]  = useState("");
+  const [recording,   setRecording]   = useState(false);
+  const [procMsg,     setProcMsg]     = useState("Auftrag wird analysiert…");
+  const [reviewData,  setReviewData]  = useState(null);
+  const [laborzettel, setLaborzettel] = useState("");
+  const [warnungen,   setWarnungen]   = useState([]);
+  const recognRef = useRef(null);
+
+  const set = useCallback((k, v) => setForm(p => ({ ...p, [k]: v })), []);
   const patSuggestions = (patienten || []).filter(p => ss(p.name).toLowerCase().includes(form.patient.toLowerCase()) && form.patient.length > 0);
 
+  // ── Voice: Start recording ────────────────────────────────────
+  const startRecording = () => {
+    try {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) { setErr("Spracherkennung nicht verfügbar — bitte manuell eingeben"); setMode("manual"); return; }
+      const r = new SR();
+      r.lang = "de-DE";
+      r.continuous = true;
+      r.interimResults = true;
+      r.onresult = e => {
+        let final = "";
+        for (let i = 0; i < e.results.length; i++) {
+          if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
+        }
+        setTranskript(final);
+      };
+      r.onerror = e => {
+        if (e.error === "not-allowed") setErr("Kein Mikrofon-Zugriff — bitte in Einstellungen erlauben");
+        else setErr("Spracherkennung unterbrochen — bitte erneut versuchen");
+        setRecording(false); setMode("choose");
+      };
+      r.onend = () => { setRecording(false); };
+      recognRef.current = r;
+      r.start();
+      setRecording(true);
+      setTranskript("");
+      setMode("recording");
+    } catch { setErr("Spracherkennung nicht verfügbar"); setMode("manual"); }
+  };
+
+  const stopRecording = () => {
+    recognRef.current?.stop();
+    setRecording(false);
+    setMode("processing");
+    processVoice();
+  };
+
+  // ── Voice: Process with KI ────────────────────────────────────
+  const processVoice = async () => {
+    const msgs = ["Auftrag wird analysiert…","Patient wird erkannt…","Felder werden extrahiert…","Laborzettel wird erstellt…"];
+    let mi = 0; setProcMsg(msgs[0]);
+    const t = setInterval(() => { mi = Math.min(mi+1, msgs.length-1); setProcMsg(msgs[mi]); }, 900);
+    try {
+      const res = await fetch("/.netlify/functions/ai-analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "voice", transkript, patienten: (patienten||[]).slice(0,50).map(p=>({name:p.name,geburtsdatum:p.geburtsdatum||""})) }),
+      });
+      clearInterval(t);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "Fehler");
+      const r = data.result;
+      // Fill form from KI result
+      const newForm = { ...form };
+      if (r.patient?.name)       newForm.patient      = r.patient.name;
+      if (r.patient?.geburtsdatum) newForm.geburtsdatum = r.patient.geburtsdatum;
+      if (r.auftrag?.arbeitstyp) newForm.arbeitstyp   = r.auftrag.arbeitstyp;
+      if (r.auftrag?.zaehne)     newForm.zahn         = r.auftrag.zaehne;
+      if (r.auftrag?.material)   newForm.anweisungen  = (r.auftrag.material + (r.auftrag.anweisungen ? " — " + r.auftrag.anweisungen : ""));
+      if (r.auftrag?.farbe)      newForm.farbe        = r.auftrag.farbe;
+      if (r.auftrag?.faelligkeit) newForm.faelligkeit = r.auftrag.faelligkeit;
+      if (r.auftrag?.prioritaet) newForm.prioritaet   = r.auftrag.prioritaet;
+      if (r.auftrag?.anweisungen && !r.auftrag?.material) newForm.anweisungen = r.auftrag.anweisungen;
+      setForm(newForm);
+      setLaborzettel(r.laborzettel?.text || "");
+      setWarnungen([...(r.meta?.fehlende_felder||[]).map(f=>"Fehlt: "+f), ...(r.laborzettel?.warnungen||[])]);
+      setReviewData(r);
+      setMode("review");
+    } catch(e) {
+      clearInterval(t);
+      setErr("KI-Analyse fehlgeschlagen — bitte manuell eingeben");
+      setMode("manual");
+    }
+  };
+
+  // ── Save ──────────────────────────────────────────────────────
   const save = async () => {
-    if (!form.patient.trim() || !form.zahnarzt.trim() || !form.faelligkeit || !form.geburtsdatum || !form.anweisungen.trim()) { setErr("Bitte alle Pflichtfelder ausfüllen (Patient, Zahnarzt, Fälligkeit, Geburtsdatum, Anweisungen)"); return; }
+    if (!form.patient.trim() || !form.zahnarzt.trim() || !form.faelligkeit || !form.geburtsdatum || !form.anweisungen.trim()) {
+      setErr("Bitte alle Pflichtfelder ausfüllen (Patient, Zahnarzt, Fälligkeit, Geburtsdatum, Anweisungen)"); return;
+    }
     setSaving(true); setErr(null);
-    const a = { ...form, id: genId(), status: "Eingang", eingang: today(), verlauf: JSON.stringify([{ datum: today(), status: "Eingang", notiz: "" }]), fotos: "[]", created_at: new Date().toISOString() };
+    const anwFull = laborzettel ? (form.anweisungen ? form.anweisungen + "\n\nLaborzettel:\n" + laborzettel : laborzettel) : form.anweisungen;
+    const a = { ...form, anweisungen: anwFull, id: genId(), status: "Eingang", eingang: today(), verlauf: JSON.stringify([{ datum: today(), status: "Eingang", notiz: "" }]), fotos: "[]", created_at: new Date().toISOString() };
     try {
       if (isConf()) { const ins = await DB.auftraege.insert(a); onSave(normA(Array.isArray(ins) && ins[0] ? ins[0] : a)); }
       else onSave(normA(a));
@@ -1618,9 +1711,135 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
 
   if (done) return <Sheet onClose={onClose} title=""><div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "44px 24px", gap: 16 }}><div style={{ fontSize: 68, animation: "popIn .4s cubic-bezier(.22,1,.36,1)" }}>✅</div><div style={{ fontWeight: 700, fontSize: 21, color: C.ok, fontFamily: "Georgia,serif" }}>Auftrag angelegt!</div><div style={{ fontSize: 14, color: C.fog }}>Erscheint sofort in der Liste</div></div></Sheet>;
 
+  // ── SCREEN: choose ────────────────────────────────────────────
+  if (mode === "choose") return (
+    <Sheet onClose={onClose} title="Neuer Auftrag" maxHeight="96vh">
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingBottom: 40 }}>
+        <p style={{ fontSize: 14, color: C.fog, margin: 0, textAlign: "center" }}>Wie möchtest du den Auftrag anlegen?</p>
+        <button onClick={startRecording} className="btn-press"
+          style={{ background: `linear-gradient(135deg,${C.sage},${C.sageDk})`, color: C.white, border: "none", borderRadius: 20, padding: "24px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 10, cursor: "pointer", boxShadow: `0 8px 32px ${C.sage}44` }}>
+          <span style={{ fontSize: 40 }}>🎙</span>
+          <span style={{ fontSize: 18, fontWeight: 700, fontFamily: "Georgia,serif" }}>Sprechen</span>
+          <span style={{ fontSize: 13, opacity: 0.8 }}>Einfach frei sprechen — KI erkennt alles</span>
+        </button>
+        <button onClick={() => setMode("manual")} className="btn-press"
+          style={{ background: C.white, color: C.ink, border: `1.5px solid ${C.sand}`, borderRadius: 20, padding: "18px 20px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <span style={{ fontSize: 32 }}>✏️</span>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Manuell eingeben</span>
+          <span style={{ fontSize: 13, color: C.fog }}>Felder einzeln ausfüllen</span>
+        </button>
+        {err && <div style={{ background: C.errLt, borderRadius: 12, padding: "12px 16px", color: C.err, fontSize: 14, fontWeight: 600 }}>{err}</div>}
+      </div>
+    </Sheet>
+  );
+
+  // ── SCREEN: recording ─────────────────────────────────────────
+  if (mode === "recording") return (
+    <Sheet onClose={() => { recognRef.current?.stop(); setMode("choose"); }} title="Sprechen…" maxHeight="96vh">
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24, paddingBottom: 40 }}>
+        <div style={{ width: 100, height: 100, borderRadius: "50%", background: `linear-gradient(135deg,${C.err},#B91C1C)`, display: "flex", alignItems: "center", justifyContent: "center", animation: "breathe 1.2s ease-in-out infinite", boxShadow: `0 0 0 0 ${C.err}44`, fontSize: 44 }}>🎙</div>
+        <div style={{ fontSize: 15, color: C.fog, fontWeight: 600, animation: "pulse 1.5s infinite" }}>Ich höre zu…</div>
+        {transkript && (
+          <div style={{ background: C.parch, borderRadius: 16, padding: "16px", width: "100%", fontSize: 15, color: C.ink, lineHeight: 1.6, minHeight: 80, boxSizing: "border-box" }}>
+            {transkript || <span style={{ color: C.fog }}>Transkript erscheint hier…</span>}
+          </div>
+        )}
+        <p style={{ fontSize: 13, color: C.fog, textAlign: "center", margin: 0 }}>
+          Beispiel: "Neue Patientin Müller, Krone auf Zahn 16, Farbe A2, bis nächste Woche"
+        </p>
+        <button onClick={stopRecording} className="btn-press"
+          style={{ background: C.err, color: C.white, border: "none", borderRadius: 16, padding: "16px 40px", fontSize: 16, fontWeight: 700, cursor: "pointer", boxShadow: `0 6px 24px ${C.err}44` }}>
+          ⏹ Fertig — Auftrag analysieren
+        </button>
+        <button onClick={() => { recognRef.current?.stop(); setTranskript(""); setMode("choose"); }}
+          style={{ background: "none", border: "none", color: C.fog, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+          ✕ Abbrechen
+        </button>
+      </div>
+    </Sheet>
+  );
+
+  // ── SCREEN: processing ────────────────────────────────────────
+  if (mode === "processing") return (
+    <Sheet onClose={onClose} title="" maxHeight="96vh">
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20, padding: "40px 0" }}>
+        <div style={{ width: 72, height: 72, borderRadius: "50%", background: `linear-gradient(135deg,${C.sage},${C.sageDk})`, display: "flex", alignItems: "center", justifyContent: "center", animation: "breathe 1.5s ease-in-out infinite", fontSize: 32 }}>🤖</div>
+        <div style={{ fontSize: 17, fontWeight: 700, color: C.ink, fontFamily: "Georgia,serif" }}>{procMsg}</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {[0,1,2].map(i => <div key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: C.sage, animation: `pulse 1.2s ease-in-out ${i*0.3}s infinite` }} />)}
+        </div>
+      </div>
+    </Sheet>
+  );
+
+  // ── SCREEN: review ────────────────────────────────────────────
+  if (mode === "review") return (
+    <Sheet onClose={onClose} title="Auftrag prüfen" maxHeight="96vh">
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: "calc(env(safe-area-inset-bottom,34px) + 100px)" }}>
+        {/* Section 1: Patient */}
+        <div style={{ background: C.sageLt, borderRadius: 16, padding: "16px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.sageDk, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 10 }}>👤 Patient</div>
+          <FormInput label="Name" value={form.patient} onChange={v => set("patient", v)} required placeholder="Patientenname" />
+          <div style={{ marginTop: 10 }}>
+            <FormInput label="Geburtsdatum" value={form.geburtsdatum} onChange={v => set("geburtsdatum", v)} type="date" />
+          </div>
+          {reviewData?.patient?.ist_neu && <div style={{ marginTop: 8, fontSize: 12, color: C.warn, fontWeight: 600 }}>⚠ Neuer Patient — wird angelegt</div>}
+        </div>
+        {/* Section 2: Auftrag */}
+        <div style={{ background: C.parch, borderRadius: 16, padding: "16px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.fog, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 10 }}>📋 Auftrag</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <FormInput label="Zahnarzt" value={form.zahnarzt} onChange={v => set("zahnarzt", v)} required placeholder="Name des Zahnarztes" />
+            <FormInput label="Arbeitstyp" value={form.arbeitstyp} onChange={v => set("arbeitstyp", v)} placeholder="z.B. Krone" />
+            <FormInput label="Zahn" value={form.zahn} onChange={v => set("zahn", v)} placeholder="z.B. 16" />
+            <FormInput label="Farbe" value={form.farbe} onChange={v => set("farbe", v)} placeholder="z.B. A2" />
+            <FormInput label="Fälligkeit" value={form.faelligkeit} onChange={v => set("faelligkeit", v)} type="date" />
+          </div>
+        </div>
+        {/* Section 3: Laborzettel */}
+        {laborzettel && (
+          <div style={{ background: C.infoLt, borderRadius: 16, padding: "16px", border: `1.5px solid ${C.info}22` }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.info, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 10 }}>🔬 Auftragshinweis für Techniker</div>
+            <textarea value={laborzettel} onChange={e => setLaborzettel(e.target.value)} rows={4}
+              style={{ background: C.white, border: `1.5px solid ${C.sand}`, borderRadius: 12, padding: "12px 14px", fontSize: 14, color: C.ink, resize: "none", fontFamily: "inherit", boxSizing: "border-box", width: "100%", lineHeight: 1.5 }} />
+          </div>
+        )}
+        {/* Section 4: Anweisungen + Warnungen */}
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: C.fog, textTransform: "uppercase", letterSpacing: "0.6px", display: "block", marginBottom: 6 }}>Anweisungen</label>
+          <textarea value={form.anweisungen} onChange={e => set("anweisungen", e.target.value)} rows={3} placeholder="Besondere Hinweise…"
+            style={{ background: C.white, border: `1.5px solid ${C.sand}`, borderRadius: 14, padding: "14px 16px", fontSize: 16, color: C.ink, resize: "none", fontFamily: "inherit", boxSizing: "border-box", width: "100%" }} />
+        </div>
+        {warnungen.length > 0 && (
+          <div style={{ background: C.warnLt, borderRadius: 14, padding: "12px 16px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.warn, marginBottom: 6 }}>⚠ Hinweise der KI</div>
+            {warnungen.map((w,i) => <div key={i} style={{ fontSize: 13, color: C.warn }}>{w}</div>)}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => setMode("choose")} className="btn-press"
+            style={{ flex: 1, background: C.parch, color: C.inkMd, border: `1.5px solid ${C.sand}`, borderRadius: 14, padding: "14px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+            🎙 Neu sprechen
+          </button>
+          <button onClick={() => setMode("manual")} className="btn-press"
+            style={{ flex: 1, background: C.parch, color: C.inkMd, border: `1.5px solid ${C.sand}`, borderRadius: 14, padding: "14px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+            ✏️ Manuell
+          </button>
+        </div>
+        {err && <div style={{ background: C.errLt, borderRadius: 12, padding: "12px 16px", color: C.err, fontSize: 14, fontWeight: 600 }}>{err}</div>}
+        <button onClick={save} disabled={saving} className="btn-press"
+          style={{ background: saving ? C.sand : `linear-gradient(135deg,${C.sage},${C.sageDk})`, color: C.white, border: "none", borderRadius: 18, padding: "18px", fontSize: 17, fontWeight: 700, cursor: saving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, boxShadow: saving ? "none" : `0 6px 24px ${C.sage}44` }}>
+          {saving ? <><Spinner size={20} color={C.white} /> Wird gespeichert…</> : "✅ Auftrag bestätigen & speichern"}
+        </button>
+      </div>
+    </Sheet>
+  );
+
+  // ── SCREEN: manual ────────────────────────────────────────────
   return (
     <Sheet onClose={onClose} title="Neuer Auftrag" maxHeight="96vh">
       <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingBottom: "calc(env(safe-area-inset-bottom,34px) + 100px)" }}>
+        <button onClick={() => setMode("choose")} style={{ background: "none", border: "none", color: C.sage, fontSize: 14, fontWeight: 600, cursor: "pointer", textAlign: "left", fontFamily: "inherit", padding: 0 }}>← Zurück</button>
         {/* Patient */}
         <div style={{ position: "relative" }}>
           <FormInput label="Patient" value={form.patient} onChange={v => { set("patient", v); setShowPat(true); }} required placeholder="Patientenname" />
@@ -1635,8 +1854,6 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
           )}
         </div>
         <FormInput label="Zahnarzt" value={form.zahnarzt} onChange={v => set("zahnarzt", v)} required placeholder="Name des Zahnarztes" />
-
-        {/* Arbeitstyp */}
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: C.fog, textTransform: "uppercase", letterSpacing: "0.6px", display: "block", marginBottom: 8 }}>Arbeitstyp</label>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -1648,20 +1865,15 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
             ))}
           </div>
         </div>
-
         <FormInput label="Farbe / Shade" value={form.farbe} onChange={v => set("farbe", v)} placeholder="z.B. A2, BL2" />
         <FormInput label="Zahn-Nummer" value={form.zahn} onChange={v => set("zahn", v)} placeholder="z.B. 36, 37" />
         <FormInput label="Geburtsdatum" value={form.geburtsdatum} onChange={v => set("geburtsdatum", v)} type="date" required />
         <FormInput label="Fälligkeitsdatum" value={form.faelligkeit} onChange={v => set("faelligkeit", v)} type="date" />
-
-        {/* Anweisungen */}
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: C.fog, textTransform: "uppercase", letterSpacing: "0.6px", display: "block", marginBottom: 6 }}>Anweisungen</label>
           <textarea value={form.anweisungen} onChange={e => set("anweisungen", e.target.value)} rows={3} placeholder="Besondere Hinweise…"
             style={{ background: C.white, border: `1.5px solid ${C.sand}`, borderRadius: 14, padding: "14px 16px", fontSize: 16, color: C.ink, resize: "none", fontFamily: "inherit", boxSizing: "border-box", width: "100%" }} />
         </div>
-
-        {/* Dringend Toggle */}
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: C.fog, textTransform: "uppercase", letterSpacing: "0.6px", display: "block", marginBottom: 8 }}>Priorität</label>
           <div style={{ display: "flex", gap: 8 }}>
@@ -1679,9 +1891,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
             <div style={{ position: "absolute", top: 3, left: form.dringend ? 23 : 3, width: 24, height: 24, borderRadius: "50%", background: C.white, boxShadow: "0 2px 6px rgba(0,0,0,0.18)", transition: "left .2s cubic-bezier(.22,1,.36,1)" }} />
           </div>
         </div>
-
         {err && <div style={{ background: C.errLt, border: `1px solid ${C.err}30`, borderRadius: 12, padding: "12px 16px", color: C.err, fontSize: 14, fontWeight: 600 }}>{err}</div>}
-
         <button onClick={save} disabled={saving} className="btn-press"
           style={{ background: saving ? C.sand : `linear-gradient(135deg,${C.sage},${C.sageDk})`, color: C.white, border: "none", borderRadius: 18, padding: "18px", fontSize: 17, fontWeight: 700, cursor: saving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, boxShadow: saving ? "none" : `0 6px 24px ${C.sage}44` }}>
           {saving ? <><Spinner size={20} color={C.white} /> Auftrag wird angelegt…</> : "✅ Auftrag anlegen"}

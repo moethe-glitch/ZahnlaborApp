@@ -217,5 +217,86 @@ Antworte NUR mit JSON:\n${FORMAT}`;
     }
   }
 
+  // ── MODE: VOICE ─────────────────────────────────────────────────
+  if (mode === "voice") {
+    const { transkript, patienten } = body;
+    if (!transkript || typeof transkript !== "string" || transkript.length > 2000) {
+      return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: "Kein gültiges Transkript" }) };
+    }
+
+    const patientenListe = Array.isArray(patienten) ? patienten.slice(0, 50).map(p => `${p.name}${p.geburtsdatum ? ` (geb. ${p.geburtsdatum})` : ""}`).join(", ") : "";
+
+    const prompt = `Du bist ein Assistent in einer Zahnarztpraxis. Analysiere diesen gesprochenen Text und extrahiere strukturierte Auftragsdaten.
+
+Gesprochener Text: "${transkript.slice(0, 1500)}"
+
+${patientenListe ? `Bekannte Patienten in der Datenbank: ${patientenListe}` : ""}
+
+Extrahiere die Daten und antworte NUR mit diesem JSON (keine anderen Texte, keine Markdown-Backticks):
+
+{
+  "patient": {
+    "name": "string oder null",
+    "geburtsdatum": "YYYY-MM-DD oder null",
+    "ist_neu": true,
+    "match_name": "exakter Name aus Patientenliste wenn gefunden, sonst null",
+    "match_confidence": 0.0
+  },
+  "auftrag": {
+    "arbeitstyp": "string oder null",
+    "zaehne": "string oder null (z.B. 14-16 oder 26)",
+    "material": "string oder null",
+    "farbe": "string oder null (VITA-Format wenn möglich)",
+    "faelligkeit": "YYYY-MM-DD oder null",
+    "prioritaet": "Normal oder Dringend oder Notfall",
+    "anweisungen": "string oder null"
+  },
+  "laborzettel": {
+    "text": "Professioneller Laborzettel für Zahntechniker. Nur gesicherte Informationen. Max 5 Sätze. Keine Halluzinationen.",
+    "warnungen": ["string"]
+  },
+  "meta": {
+    "fehlende_felder": ["string"],
+    "confidence": 0.0,
+    "sprache": "de oder en"
+  }
+}
+
+Wichtige Regeln:
+- Erfinde KEINE Daten die nicht im Text stehen
+- Bei Unsicherheit: null setzen
+- Zahnnummern im FDI-Format (11-48)
+- Farbe im VITA-Format wenn erkennbar (A1-D4, BL1-4)
+- Datum relativ berechnen: heute ist ${new Date().toISOString().slice(0,10)}
+- "nächste Woche" = in 7 Tagen, "übermorgen" = in 2 Tagen
+- Laborzettel: nur verwenden was explizit gesagt wurde`;
+
+    try {
+      console.log("[ai-analyze] voice request, length:", transkript.length);
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1500,
+          messages: [{ role: "user", content: prompt }]
+        }),
+      });
+
+      if (!res.ok) throw new Error(`Claude ${res.status}`);
+
+      const data = await res.json();
+      const txt  = data.content?.[0]?.text || "{}";
+      const clean = txt.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
+      const result = JSON.parse(clean);
+      console.log("[ai-analyze] voice ok, confidence:", result?.meta?.confidence);
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, result }) };
+
+    } catch (err) {
+      console.error("[ai-analyze] voice error:", err.message);
+      return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: "Sprach-Analyse fehlgeschlagen — bitte manuell eingeben" }) };
+    }
+  }
+
   return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: `Unbekannter Modus: ${mode}` }) };
 };
