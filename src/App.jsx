@@ -202,7 +202,7 @@ const LS = {
   get: (k, def) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
   set: (k, v)   => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-const getPinOn  = ()  => LS.get("pinOn", true);
+const getPinOn  = ()  => LS.get("pinOn", false); // PIN off by default — Supabase Auth is the real gate
 const getUser   = ()  => LS.get("user", null);
 const getDark   = ()  => LS.get("dark", false);
 const setDark   = v   => LS.set("dark", v);
@@ -2991,11 +2991,10 @@ function App() {
   useEffect(() => {
     Monitor.init();
     setTimeout(askPush, 5000);
-    // Check if stored session is still valid
     const s = sbAuth.getSession();
-    if (s?.access_token) setSbSession(s);
+    if (s?.access_token) { setSbSession(s); loadProfile(s); }
     setAuthChecked(true);
-  }, []);
+  }, [loadProfile]);
 
   // ─── Auth ────────────────────────────────────────────────────────────
   const [locked,  setLocked]  = useState(getPinOn);
@@ -3003,7 +3002,24 @@ function App() {
   const [dark,    setDarkS]   = useState(getDark);
   const [sbSession,   setSbSession]   = useState(() => sbAuth.getSession());
   const [authChecked, setAuthChecked] = useState(false);
+  const [profileErr,  setProfileErr]  = useState(null);
   const toggleDark = () => { const n = !dark; setDark(n); setDarkS(n); };
+
+  // Load profile (role) from Supabase after session is confirmed
+  const loadProfile = useCallback(async (session) => {
+    if (!session?.access_token || !isConf()) return;
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/profiles?id=eq.${session.user.id}&select=rolle,email`, {
+        headers: { apikey: SB_KEY, Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) throw new Error("Profil nicht gefunden");
+      const data = await res.json();
+      if (!data?.[0]) { setProfileErr("Kein Profil gefunden — bitte Administrator kontaktieren"); return; }
+      const p = data[0];
+      const u = { name: p.email || session.user.email, rolle: p.rolle || "praxis" };
+      setUser(u); LS.set("user", u); setProfileErr(null);
+    } catch(e) { setProfileErr(e.message); }
+  }, []);
 
   // ─── Navigation ──────────────────────────────────────────────────────
   const [navTab,       setNavTab]       = useState("home");
@@ -3163,12 +3179,24 @@ function App() {
 
   const markRead = useCallback(aid => { setUnread(p => { const n = { ...p }; delete n[aid]; return n; }); }, []);
 
-  // Supabase Auth gate — shown before PIN/Role
+  // Supabase Auth is the only real gate
   if (!authChecked) return null;
   if (!sbSession?.access_token) {
-    return <AuthLoginScreen onAuthSuccess={s => { sbAuth.setSession(s); setSbSession(s); }} />;
+    return <AuthLoginScreen onAuthSuccess={s => { sbAuth.setSession(s); setSbSession(s); loadProfile(s); }} />;
   }
-  if (locked || !user) {
+  if (profileErr) {
+    return (
+      <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:40, gap:16, background: C.cream }}>
+        <div style={{ fontSize:48 }}>⚠️</div>
+        <div style={{ fontWeight:700, fontSize:20, color:C.err, fontFamily:"Georgia,serif" }}>Kein Zugriff</div>
+        <div style={{ fontSize:14, color:C.fog, textAlign:"center", maxWidth:280 }}>{profileErr}</div>
+        <button onClick={async () => { await sbAuth.signOut(sbSession.access_token); sbAuth.setSession(null); setSbSession(null); }} style={{ background:C.err, color:"#fff", border:"none", borderRadius:14, padding:"14px 28px", fontSize:15, fontWeight:700, cursor:"pointer" }}>Abmelden</button>
+      </div>
+    );
+  }
+  if (!user) return <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center" }}><Spinner /></div>;
+  // Optional PIN (comfort only — not a security gate)
+  if (locked && getPinOn()) {
     return <LoginScreen onLogin={u => { setUser(u); LS.set("user", u); setLocked(false); }} />;
   }
 
@@ -3258,7 +3286,8 @@ function App() {
             setSbSession(null);
             LS.set("user", null);
             setUser(null);
-            setLocked(getPinOn());
+            setLocked(false);
+            setProfileErr(null);
           }} />
         </div>
       );
