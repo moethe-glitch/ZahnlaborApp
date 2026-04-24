@@ -582,8 +582,8 @@ function Sheet({ onClose, children, title, maxHeight = "92vh" }) {
 // ═══════════════════════════════════════════════════════════════════════
 // Lazy signed URL image component
 function SignedImg({ path, style, onClick }) {
-  const [src, setSrc] = React.useState(null);
-  React.useEffect(() => {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
     let cancelled = false;
     getPhotoUrl(path).then(url => { if (!cancelled) setSrc(url); });
     return () => { cancelled = true; };
