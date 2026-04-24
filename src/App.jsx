@@ -2988,14 +2988,6 @@ function MoreScreen({ user, onNav }) {
 // § MAIN APP — vollständige State-Logik + Navigation
 // ═══════════════════════════════════════════════════════════════════════
 function App() {
-  useEffect(() => {
-    Monitor.init();
-    setTimeout(askPush, 5000);
-    const s = sbAuth.getSession();
-    if (s?.access_token) { setSbSession(s); loadProfile(s); }
-    setAuthChecked(true);
-  }, [loadProfile]);
-
   // ─── Auth ────────────────────────────────────────────────────────────
   const [locked,  setLocked]  = useState(getPinOn);
   const [user,    setUser]    = useState(getUser);
@@ -3020,6 +3012,14 @@ function App() {
       setUser(u); LS.set("user", u); setProfileErr(null);
     } catch(e) { setProfileErr(e.message); }
   }, []);
+
+  useEffect(() => {
+    Monitor.init();
+    setTimeout(askPush, 5000);
+    const s = sbAuth.getSession();
+    if (s?.access_token) { setSbSession(s); loadProfile(s); }
+    setAuthChecked(true);
+  }, [loadProfile]);
 
   // ─── Navigation ──────────────────────────────────────────────────────
   const [navTab,       setNavTab]       = useState("home");
