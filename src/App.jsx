@@ -6,7 +6,33 @@ import { useState, useEffect, useRef, useCallback, Component } from "react";
 const SB_URL  = "https://rfoiokhambyjewpauytn.supabase.co";
 const SB_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJmb2lva2hhbWJ5amV3cGF1eXRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyMzgwMTEsImV4cCI6MjA5MTgxNDAxMX0.Lokl1HrFSx2HSJJFQjd5oM31NfeB3cbyso3nDvdB8bc";
 const isConf  = () => SB_URL !== "IHRE_SUPABASE_URL";
-const MISSED_MS = 3 * 60 * 1000; // 3 Minuten bis "verpasst"
+const MISSED_MS = 3 * 60 * 1000;
+
+// ── Supabase Auth helpers (REST, no extra library) ─────────────
+const sbAuth = {
+  signIn: async (email, password) => {
+    const res = await fetch(`${SB_URL}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: { apikey: SB_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error_description || data.msg || "Login fehlgeschlagen");
+    return data;
+  },
+  signOut: async (accessToken) => {
+    await fetch(`${SB_URL}/auth/v1/logout`, {
+      method: "POST",
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${accessToken}` },
+    }).catch(() => {});
+  },
+  getSession: () => {
+    try { return JSON.parse(localStorage.getItem("sb_session") || "null"); } catch { return null; }
+  },
+  setSession: (s) => {
+    try { localStorage.setItem("sb_session", s ? JSON.stringify(s) : "null"); } catch {} 
+  },
+}; // 3 Minuten bis "verpasst"
 
 // ═══════════════════════════════════════════════════════════════════════
 // § DESIGN TOKENS — Warm Dental Premium
@@ -605,6 +631,45 @@ function PinPad({ onSubmit, error, dark }) {
 // ═══════════════════════════════════════════════════════════════════════
 // § LOGIN SCREEN — Premium Apple style
 // ═══════════════════════════════════════════════════════════════════════
+function AuthLoginScreen({ onAuthSuccess }) {
+  const [email,    setEmail]    = useState("");
+  const [password, setPassword] = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [err,      setErr]      = useState(null);
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) { setErr("E-Mail und Passwort eingeben"); return; }
+    setLoading(true); setErr(null);
+    try {
+      const session = await sbAuth.signIn(email.trim(), password.trim());
+      sbAuth.setSession(session);
+      onAuthSuccess(session);
+    } catch(e) { setErr(e.message || "Login fehlgeschlagen"); }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:`linear-gradient(175deg,${C.brand} 0%,#3D2823 45%,#2C3E35 100%)`, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 28px" }}>
+      <style>{CSS}</style>
+      <div style={{ fontSize:56, marginBottom:16 }}>🦷</div>
+      <div style={{ color:C.white, fontSize:28, fontWeight:700, fontFamily:"Georgia,serif", marginBottom:6 }}>Mothe App</div>
+      <div style={{ color:"rgba(255,255,255,0.45)", fontSize:14, marginBottom:44 }}>Die 3 Zahnärzte by Mahal</div>
+      <div style={{ width:"100%", maxWidth:340, display:"flex", flexDirection:"column", gap:14 }}>
+        <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="E-Mail" autoCapitalize="none"
+          style={{ background:"rgba(255,255,255,0.12)", border:"1.5px solid rgba(255,255,255,0.18)", borderRadius:16, padding:"16px 18px", fontSize:16, color:C.white, fontFamily:"inherit", outline:"none" }} />
+        <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="Passwort"
+          onKeyDown={e=>{ if(e.key==="Enter") handleLogin(); }}
+          style={{ background:"rgba(255,255,255,0.12)", border:"1.5px solid rgba(255,255,255,0.18)", borderRadius:16, padding:"16px 18px", fontSize:16, color:C.white, fontFamily:"inherit", outline:"none" }} />
+        {err && <div style={{ background:"rgba(220,38,38,0.2)", border:"1px solid rgba(220,38,38,0.4)", borderRadius:12, padding:"12px 16px", color:"#FCA5A5", fontSize:14, fontWeight:600 }}>{err}</div>}
+        <button onClick={handleLogin} disabled={loading}
+          style={{ background:loading?`rgba(122,158,142,0.5)`:`linear-gradient(135deg,${C.sage},${C.sageDk})`, color:C.white, border:"none", borderRadius:16, padding:"17px", fontSize:17, fontWeight:700, cursor:loading?"default":"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+          {loading ? "Anmelden…" : "Anmelden"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({ onLogin }) {
   const [step,   setStep]   = useState("pin");
   const [pinErr, setPinErr] = useState(false);
@@ -2890,12 +2955,21 @@ function MoreScreen({ user, onNav }) {
 // § MAIN APP — vollständige State-Logik + Navigation
 // ═══════════════════════════════════════════════════════════════════════
 function App() {
-  useEffect(() => { Monitor.init(); setTimeout(askPush, 5000); }, []);
+  useEffect(() => {
+    Monitor.init();
+    setTimeout(askPush, 5000);
+    // Check if stored session is still valid
+    const s = sbAuth.getSession();
+    if (s?.access_token) setSbSession(s);
+    setAuthChecked(true);
+  }, []);
 
   // ─── Auth ────────────────────────────────────────────────────────────
   const [locked,  setLocked]  = useState(getPinOn);
   const [user,    setUser]    = useState(getUser);
   const [dark,    setDarkS]   = useState(getDark);
+  const [sbSession,   setSbSession]   = useState(() => sbAuth.getSession());
+  const [authChecked, setAuthChecked] = useState(false);
   const toggleDark = () => { const n = !dark; setDark(n); setDarkS(n); };
 
   // ─── Navigation ──────────────────────────────────────────────────────
@@ -3056,6 +3130,11 @@ function App() {
 
   const markRead = useCallback(aid => { setUnread(p => { const n = { ...p }; delete n[aid]; return n; }); }, []);
 
+  // Supabase Auth gate — shown before PIN/Role
+  if (!authChecked) return null;
+  if (!sbSession?.access_token) {
+    return <AuthLoginScreen onAuthSuccess={s => { sbAuth.setSession(s); setSbSession(s); }} />;
+  }
   if (locked || !user) {
     return <LoginScreen onLogin={u => { setUser(u); LS.set("user", u); setLocked(false); }} />;
   }
@@ -3140,7 +3219,14 @@ function App() {
       case "settings": return (
         <div key="settings" className="fade-up" style={wrapSt}>
           <SettingsScreen user={user} dark={dark} onToggleDark={toggleDark}
-            onLogout={() => { LS.set("user", null); setUser(null); setLocked(getPinOn()); }} />
+            onLogout={async () => {
+            if (sbSession?.access_token) await sbAuth.signOut(sbSession.access_token);
+            sbAuth.setSession(null);
+            setSbSession(null);
+            LS.set("user", null);
+            setUser(null);
+            setLocked(getPinOn());
+          }} />
         </div>
       );
       case "more": return (
