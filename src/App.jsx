@@ -1699,7 +1699,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
 
   // ── Mode: voice | manual ──────────────────────────────────────
   const [mode,      setMode]      = useState("choose"); // choose | recording | processing | review | manual
-  const [form,      setForm]      = useState({ patient: "", zahnarzt: "", arbeitstyp: "Krone", farbe: "", faelligkeit: "", anweisungen: "", dringend: false, grund_rueck: "", prioritaet: "Normal", geburtsdatum: "", zahn: "" });
+  const [form,      setForm]      = useState({ patient: "", zahnarzt: "", arbeitstyp: "Krone", farbe: "", faelligkeit: addDays(14), anweisungen: "", dringend: false, grund_rueck: "", prioritaet: "Normal", zahn: "" });
   const [saving,    setSaving]    = useState(false);
   const [err,       setErr]       = useState(null);
   const [done,      setDone]      = useState(false);
@@ -1763,7 +1763,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
       const res = await fetch("/.netlify/functions/ai-analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "voice", transkript, patienten: (patienten||[]).slice(0,50).map(p=>({name:p.name,geburtsdatum:p.geburtsdatum||""})) }),
+        body: JSON.stringify({ mode: "voice", transkript, patienten: (patienten||[]).slice(0,50).map(p=>({name:p.name})) }),
       });
       clearInterval(t);
       const data = await res.json();
@@ -1772,8 +1772,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
       // Fill form from KI result
       const newForm = { ...form };
       if (r.patient?.name)       newForm.patient      = r.patient.name;
-      if (r.patient?.geburtsdatum) newForm.geburtsdatum = r.patient.geburtsdatum;
-      if (r.auftrag?.arbeitstyp) newForm.arbeitstyp   = r.auftrag.arbeitstyp;
+        if (r.auftrag?.arbeitstyp) newForm.arbeitstyp   = r.auftrag.arbeitstyp;
       if (r.auftrag?.zaehne)     newForm.zahn         = r.auftrag.zaehne;
       if (r.auftrag?.material)   newForm.anweisungen  = (r.auftrag.material + (r.auftrag.anweisungen ? " — " + r.auftrag.anweisungen : ""));
       if (r.auftrag?.farbe)      newForm.farbe        = r.auftrag.farbe;
@@ -1794,8 +1793,8 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
 
   // ── Save ──────────────────────────────────────────────────────
   const save = async () => {
-    if (!form.patient.trim() || !form.zahnarzt.trim() || !form.faelligkeit || !form.geburtsdatum || !form.anweisungen.trim()) {
-      setErr("Bitte alle Pflichtfelder ausfüllen (Patient, Zahnarzt, Fälligkeit, Geburtsdatum, Anweisungen)"); return;
+    if (!form.patient.trim() || !form.zahnarzt.trim() || !form.faelligkeit || !form.anweisungen.trim()) {
+      setErr("Bitte alle Pflichtfelder ausfüllen (Patient, Zahnarzt, Fälligkeit, Anweisungen)"); return;
     }
     setSaving(true); setErr(null);
     const anwFull = laborzettel ? (form.anweisungen ? form.anweisungen + "\n\nLaborzettel:\n" + laborzettel : laborzettel) : form.anweisungen;
@@ -1878,9 +1877,6 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
         <div style={{ background: C.sageLt, borderRadius: 16, padding: "16px" }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.sageDk, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 10 }}>👤 Patient</div>
           <FormInput label="Name" value={form.patient} onChange={v => set("patient", v)} required placeholder="Patientenname" />
-          <div style={{ marginTop: 10 }}>
-            <FormInput label="Geburtsdatum" value={form.geburtsdatum} onChange={v => set("geburtsdatum", v)} type="date" />
-          </div>
           {reviewData?.patient?.ist_neu && <div style={{ marginTop: 8, fontSize: 12, color: C.warn, fontWeight: 600 }}>⚠ Neuer Patient — wird angelegt</div>}
         </div>
         {/* Section 2: Auftrag */}
@@ -1965,7 +1961,6 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
         </div>
         <FormInput label="Farbe / Shade" value={form.farbe} onChange={v => set("farbe", v)} placeholder="z.B. A2, BL2" />
         <FormInput label="Zahn-Nummer" value={form.zahn} onChange={v => set("zahn", v)} placeholder="z.B. 36, 37" />
-        <FormInput label="Geburtsdatum" value={form.geburtsdatum} onChange={v => set("geburtsdatum", v)} type="date" required />
         <FormInput label="Fälligkeitsdatum" value={form.faelligkeit} onChange={v => set("faelligkeit", v)} type="date" />
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: C.fog, textTransform: "uppercase", letterSpacing: "0.6px", display: "block", marginBottom: 6 }}>Anweisungen</label>
@@ -2094,7 +2089,6 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
             <InfoRow label="Eingang"   value={fmtDate(localA.eingang)} />
             <InfoRow label="Fällig"    value={fmtDate(localA.faelligkeit)} accent={isLate(localA) ? C.err : undefined} />
             {localA.zahn && <InfoRow label="Zahn" value={ss(localA.zahn)} />}
-            {localA.geburtsdatum && <InfoRow label="Geburtsdatum" value={fmtDate(localA.geburtsdatum)} />}
             {localA.prioritaet && <InfoRow label="Priorität" value={localA.prioritaet === "Notfall" ? "🚨 Notfall" : localA.prioritaet === "Dringend" ? "🔴 Dringend" : localA.dringend ? "🔴 Dringend" : "✓ Normal"} accent={localA.prioritaet === "Normal" ? undefined : C.err} />}
             {localA.anweisungen && <InfoRow label="Anweisungen" value={ss(localA.anweisungen)} last />}
           </div>
@@ -2870,7 +2864,46 @@ function StatistikScreen({ auftraege, materials }) {
 // ═══════════════════════════════════════════════════════════════════════
 // § SETTINGS SCREEN
 // ═══════════════════════════════════════════════════════════════════════
-function SettingsScreen({ user, dark, onToggleDark, onLogout }) {
+function NameEditor({ user, onNameSaved }) {
+  const [name,    setName]    = useState(ss(user?.name) || "");
+  const [saving,  setSaving]  = useState(false);
+  const [msg,     setMsg]     = useState(null);
+
+  const save = async () => {
+    if (!name.trim()) { setMsg({ t:"err", m:"Name darf nicht leer sein" }); return; }
+    setSaving(true); setMsg(null);
+    try {
+      if (isConf()) {
+        const session = sbAuth.getSession();
+        if (session?.access_token) {
+          await fetch(`${SB_URL}/rest/v1/profiles?id=eq.${session.user.id}`, {
+            method: "PATCH",
+            headers: { apikey: SB_KEY, Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+            body: JSON.stringify({ name: name.trim() }),
+          });
+        }
+      }
+      onNameSaved(name.trim());
+      setMsg({ t:"ok", m:"✅ Name gespeichert" });
+      setTimeout(() => setMsg(null), 2500);
+    } catch { setMsg({ t:"err", m:"Speichern fehlgeschlagen" }); }
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="Dein Name"
+        style={{ width:"100%", background:C.parch, border:`1.5px solid ${C.sand}`, borderRadius:12, padding:"13px 15px", fontSize:16, boxSizing:"border-box", marginBottom:10, fontFamily:"inherit" }} />
+      {msg && <div style={{ color:msg.t==="err"?C.err:C.ok, fontSize:13, fontWeight:600, marginBottom:10 }}>{msg.m}</div>}
+      <button onClick={save} disabled={saving} className="btn-press"
+        style={{ background:`linear-gradient(135deg,${C.sage},${C.sageDk})`, color:C.white, border:"none", borderRadius:12, padding:14, width:"100%", fontSize:15, fontWeight:700, cursor:"pointer", boxShadow:`0 4px 18px ${C.sage}44` }}>
+        {saving ? "Speichern…" : "Name speichern"}
+      </button>
+    </div>
+  );
+}
+
+function SettingsScreen({ user, dark, onToggleDark, onLogout, onNameSaved }) {
   const [pin, setPin] = useState(""); const [pinConf, setPinConf] = useState(""); const [pinMsg, setPinMsg] = useState(null);
   const [pinOn, setPinOn] = useState(getPinOn());
 
@@ -2939,6 +2972,12 @@ function SettingsScreen({ user, dark, onToggleDark, onLogout }) {
           </button>
         </Card>
 
+        {/* Name ändern */}
+        <Card pad={18} style={{ marginBottom:16 }}>
+          <div style={{ fontSize:15, fontWeight:700, color:C.ink, marginBottom:14, fontFamily:"Georgia,serif" }}>✏️ Name ändern</div>
+          <NameEditor user={user} onNameSaved={onNameSaved} />
+        </Card>
+
         {/* Logout */}
         <button onClick={onLogout} className="btn-press"
           style={{ width:"100%", background:C.errLt, border:`1.5px solid ${C.err}44`, borderRadius:18, padding:18, fontSize:16, fontWeight:700, color:C.err, cursor:"pointer" }}>
@@ -3001,14 +3040,14 @@ function App() {
   const loadProfile = useCallback(async (session) => {
     if (!session?.access_token || !isConf()) return;
     try {
-      const res = await fetch(`${SB_URL}/rest/v1/profiles?id=eq.${session.user.id}&select=rolle,email`, {
+      const res = await fetch(`${SB_URL}/rest/v1/profiles?id=eq.${session.user.id}&select=rolle,email,name`, {
         headers: { apikey: SB_KEY, Authorization: `Bearer ${session.access_token}` },
       });
       if (!res.ok) throw new Error("Profil nicht gefunden");
       const data = await res.json();
       if (!data?.[0]) { setProfileErr("Kein Profil gefunden — bitte Administrator kontaktieren"); return; }
       const p = data[0];
-      const u = { name: p.email || session.user.email, rolle: p.rolle || "praxis" };
+      const u = { name: p.name || p.email || session.user.email, rolle: p.rolle || "praxis" };
       setUser(u); LS.set("user", u); setProfileErr(null);
     } catch(e) { setProfileErr(e.message); }
   }, []);
@@ -3280,6 +3319,7 @@ function App() {
       case "settings": return (
         <div key="settings" className="fade-up" style={wrapSt}>
           <SettingsScreen user={user} dark={dark} onToggleDark={toggleDark}
+            onNameSaved={newName => { const u={...user, name:newName}; setUser(u); LS.set("user",u); }}
             onLogout={async () => {
             if (sbSession?.access_token) await sbAuth.signOut(sbSession.access_token);
             sbAuth.setSession(null);
