@@ -337,7 +337,7 @@ const DB = {
         body: file,
       });
       if (!res.ok) throw new Error("Upload fehlgeschlagen");
-      return `${SB_URL}/storage/v1/object/public/${bucket}/${path}`;
+      return `${bucket}/${path}`; // store path, not public URL;
     },
   },
 };
@@ -345,6 +345,27 @@ const DB = {
 // ═══════════════════════════════════════════════════════════════════════
 // § NORMALIZE
 // ═══════════════════════════════════════════════════════════════════════
+// ── Signed URL helper ─────────────────────────────────────────
+const getPhotoUrl = async (pathOrUrl, bucket = "fotos", expires = 3600) => {
+  // Old public URLs pass through unchanged
+  if (pathOrUrl && (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://"))) return pathOrUrl;
+  if (!pathOrUrl) return null;
+  // New paths → signed URL
+  try {
+    const cleanPath = pathOrUrl.replace(`${bucket}/`, "");
+    const session = (() => { try { return JSON.parse(localStorage.getItem("sb_session") || "null"); } catch { return null; } })();
+    const token = session?.access_token || SB_KEY;
+    const res = await fetch(`${SB_URL}/storage/v1/object/sign/${bucket}/${cleanPath}`, {
+      method: "POST",
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn: expires }),
+    });
+    if (!res.ok) return pathOrUrl;
+    const data = await res.json();
+    return `${SB_URL}/storage/v1${data.signedURL}`;
+  } catch { return pathOrUrl; }
+};
+
 const normA = a => ({
   ...a,
   fotos:   (() => { try { return JSON.parse(a.fotos || "[]"); } catch { return []; } })(),
@@ -559,6 +580,18 @@ function Sheet({ onClose, children, title, maxHeight = "92vh" }) {
 // ═══════════════════════════════════════════════════════════════════════
 // § FORM INPUT (module-level to prevent keyboard remount bug)
 // ═══════════════════════════════════════════════════════════════════════
+// Lazy signed URL image component
+function SignedImg({ path, style, onClick }) {
+  const [src, setSrc] = React.useState(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    getPhotoUrl(path).then(url => { if (!cancelled) setSrc(url); });
+    return () => { cancelled = true; };
+  }, [path]);
+  if (!src) return <div style={{ ...style, background: "#E7E5E4", display: "flex", alignItems: "center", justifyContent: "center" }}>⏳</div>;
+  return <img src={src} alt="" style={style} onClick={onClick} />;
+}
+
 function FormInput({ label, value, onChange, type = "text", required, placeholder, hint }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -2072,8 +2105,8 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: C.inkMd, marginBottom: 10 }}>Fotos ({fotos.length})</div>
             <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
-              {fotos.map((url, i) => (
-                <img key={i} src={url} alt="" style={{ width: 88, height: 88, borderRadius: 14, objectFit: "cover", flexShrink: 0, boxShadow: "0 2px 10px rgba(0,0,0,0.12)" }} onClick={() => window.open(url)} />
+              {fotos.map((path, i) => (
+                <SignedImg key={i} path={path} onClick={() => getPhotoUrl(path).then(url => window.open(url))} style={{ width: 88, height: 88, borderRadius: 14, objectFit: "cover", flexShrink: 0, boxShadow: "0 2px 10px rgba(0,0,0,0.12)", cursor: "zoom-in" }} />
               ))}
             </div>
           </div>
