@@ -1699,7 +1699,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
 
   // ── Mode: voice | manual ──────────────────────────────────────
   const [mode,      setMode]      = useState("choose"); // choose | recording | processing | review | manual
-  const [form,      setForm]      = useState({ patient: "", zahnarzt: "", arbeitstyp: "Krone", farbe: "", faelligkeit: addDays(14), anweisungen: "", dringend: false, grund_rueck: "", prioritaet: "Normal", zahn: "" });
+  const [form,      setForm]      = useState({ patient: "", zahnarzt: "", arbeitstyp: "Krone", farbe: "", faelligkeit: new Date(Date.now() + 14*24*60*60*1000).toISOString().slice(0,10), anweisungen: "", dringend: false, grund_rueck: "", prioritaet: "Normal", zahn: "" });
   const [saving,    setSaving]    = useState(false);
   const [err,       setErr]       = useState(null);
   const [done,      setDone]      = useState(false);
@@ -2864,6 +2864,85 @@ function StatistikScreen({ auftraege, materials }) {
 // ═══════════════════════════════════════════════════════════════════════
 // § SETTINGS SCREEN
 // ═══════════════════════════════════════════════════════════════════════
+function MitarbeiterAdmin({ user }) {
+  const [profiles,  setProfiles]  = useState([]);
+  const [loading,   setLoading]   = useState(false);
+  const [saving,    setSaving]    = useState({});
+  const [msgs,      setMsgs]      = useState({});
+  const [localRoles,setLocalRoles]= useState({});
+  const ROLLEN = ["admin","zahnarzt","assistenz","techniker"];
+
+  useEffect(() => {
+    if (!isConf()) return;
+    setLoading(true);
+    const session = sbAuth.getSession();
+    if (!session?.access_token) { setLoading(false); return; }
+    fetch(`${SB_URL}/rest/v1/profiles?select=id,email,name,rolle&order=email.asc`, {
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${session.access_token}` },
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setProfiles(data);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const saveRolle = async (profileId, rolle) => {
+    setSaving(p => ({ ...p, [profileId]: true }));
+    setMsgs(p => ({ ...p, [profileId]: null }));
+    try {
+      const session = sbAuth.getSession();
+      if (!session?.access_token) throw new Error("Nicht eingeloggt");
+      const res = await fetch(`${SB_URL}/rest/v1/profiles?id=eq.${profileId}`, {
+        method: "PATCH",
+        headers: { apikey: SB_KEY, Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ rolle }),
+      });
+      if (!res.ok) throw new Error("Speichern fehlgeschlagen");
+      setProfiles(p => p.map(pr => pr.id === profileId ? { ...pr, rolle } : pr));
+      setMsgs(p => ({ ...p, [profileId]: { t: "ok", m: "✅ Gespeichert" } }));
+      setTimeout(() => setMsgs(p => ({ ...p, [profileId]: null })), 2500);
+    } catch(e) {
+      setMsgs(p => ({ ...p, [profileId]: { t: "err", m: e.message || "Fehler" } }));
+    }
+    setSaving(p => ({ ...p, [profileId]: false }));
+  };
+
+  return (
+    <Card pad={18} style={{ marginBottom:16 }}>
+      <div style={{ fontSize:15, fontWeight:700, color:C.ink, marginBottom:4, fontFamily:"Georgia,serif" }}>👥 Mitarbeiterverwaltung</div>
+      <div style={{ fontSize:12, color:C.fog, marginBottom:14 }}>⚠ Hinweis: RLS muss serverseitig abgesichert sein damit nur Admins Rollen ändern können.</div>
+      {loading && <div style={{ color:C.fog, fontSize:14 }}>Lade Mitarbeiter…</div>}
+      {!loading && profiles.map(pr => {
+        const currentRolle = localRoles[pr.id] ?? pr.rolle ?? "praxis";
+        const isSelf = pr.id === sbAuth.getSession()?.user?.id;
+        return (
+          <div key={pr.id} style={{ borderBottom:`1px solid ${C.sand}`, paddingBottom:14, marginBottom:14 }}>
+            <div style={{ fontWeight:600, fontSize:14, color:C.ink }}>{pr.name || pr.email || pr.id}</div>
+            <div style={{ fontSize:12, color:C.fog, marginBottom:8 }}>{pr.email}{isSelf ? " (du)" : ""}</div>
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <select value={currentRolle}
+                onChange={e => setLocalRoles(p => ({ ...p, [pr.id]: e.target.value }))}
+                style={{ flex:1, background:C.parch, border:`1.5px solid ${C.sand}`, borderRadius:10, padding:"10px 12px", fontSize:14, fontFamily:"inherit", color:C.ink }}>
+                {ROLLEN.map(r => <option key={r} value={r}>{r}</option>)}
+                {!ROLLEN.includes(currentRolle) && <option value={currentRolle}>{currentRolle} (alt)</option>}
+              </select>
+              <button onClick={() => saveRolle(pr.id, localRoles[pr.id] ?? pr.rolle ?? "praxis")}
+                disabled={saving[pr.id] || !(pr.id in localRoles)}
+                className="btn-press"
+                style={{ background: saving[pr.id] || !(pr.id in localRoles) ? C.sand : `linear-gradient(135deg,${C.sage},${C.sageDk})`, color:C.white, border:"none", borderRadius:10, padding:"10px 16px", fontSize:14, fontWeight:700, cursor: saving[pr.id] || !(pr.id in localRoles) ? "default" : "pointer" }}>
+                {saving[pr.id] ? "…" : "Speichern"}
+              </button>
+            </div>
+            {msgs[pr.id] && <div style={{ fontSize:12, fontWeight:600, marginTop:6, color: msgs[pr.id].t==="err" ? C.err : C.ok }}>{msgs[pr.id].m}</div>}
+          </div>
+        );
+      })}
+    </Card>
+  );
+}
+
 function NameEditor({ user, onNameSaved }) {
   const [name,    setName]    = useState(ss(user?.name) || "");
   const [saving,  setSaving]  = useState(false);
@@ -2977,6 +3056,9 @@ function SettingsScreen({ user, dark, onToggleDark, onLogout, onNameSaved }) {
           <div style={{ fontSize:15, fontWeight:700, color:C.ink, marginBottom:14, fontFamily:"Georgia,serif" }}>✏️ Name ändern</div>
           <NameEditor user={user} onNameSaved={onNameSaved} />
         </Card>
+
+        {/* Admin: Mitarbeiterverwaltung */}
+        {user?.rolle === "admin" && <MitarbeiterAdmin user={user} />}
 
         {/* Logout */}
         <button onClick={onLogout} className="btn-press"
