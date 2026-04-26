@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useCallback, Component } from "react";
 // ═══════════════════════════════════════════════════════════════════════
 const SB_URL  = "https://rfoiokhambyjewpauytn.supabase.co";
 const SB_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJmb2lva2hhbWJ5amV3cGF1eXRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyMzgwMTEsImV4cCI6MjA5MTgxNDAxMX0.Lokl1HrFSx2HSJJFQjd5oM31NfeB3cbyso3nDvdB8bc";
+const VAPID_KEY = "BOYvsqtTQvb4hyEtrI2psM8MjqAg5EnpUq16l-xd-QfgTZPTWSHk6OVvBFGEafdYdxvO3HtKFfCnQz_My9QQu_Y";
 const isConf  = () => SB_URL !== "IHRE_SUPABASE_URL";
 const MISSED_MS = 3 * 60 * 1000;
 
@@ -264,8 +265,83 @@ function pushNotif(title, body, tag = "general") {
   } catch {}
 }
 
-function askPush() {
-  try { if (Notification.permission === "default") Notification.requestPermission(); } catch {}
+// ── urlBase64ToUint8Array helper for VAPID key ────────────────
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64  = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw     = atob(base64);
+  return new Uint8Array([...raw].map(c => c.charCodeAt(0)));
+}
+
+// ── Save or update push subscription in Supabase ──────────────
+async function savePushSubscription(sub, userInfo) {
+  try {
+    const session = (() => { try { return JSON.parse(localStorage.getItem("sb_session") || "null"); } catch { return null; } })();
+    if (!session?.access_token) return;
+    const subJson = sub.toJSON();
+    const payload = {
+      user_id:      session.user.id,
+      user_name:    userInfo?.name || userInfo?.email || "",
+      role:         userInfo?.rolle || "praxis",
+      endpoint:     subJson.endpoint,
+      subscription: subJson,
+      platform:     /iphone|ipad/i.test(navigator.userAgent) ? "ios" : /android/i.test(navigator.userAgent) ? "android" : "web",
+      device_label: navigator.userAgent.slice(0, 80),
+      is_active:    true,
+      last_seen_at: new Date().toISOString(),
+    };
+    // Upsert by endpoint
+    await fetch(`${SB_URL}/rest/v1/push_subscriptions`, {
+      method:  "POST",
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify(payload),
+    });
+    console.log("[Push] Subscription gespeichert");
+  } catch(e) {
+    console.warn("[Push] Subscription speichern fehlgeschlagen:", e.message);
+  }
+}
+
+// ── Main push setup ───────────────────────────────────────────
+async function askPush(userInfo) {
+  try {
+    // 1. Check browser support
+    if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+
+    // 2. Request permission
+    let permission = Notification.permission;
+    if (permission === "default") {
+      permission = await Notification.requestPermission();
+    }
+    if (permission !== "granted") return;
+
+    // 3. Wait for service worker
+    const registration = await navigator.serviceWorker.ready;
+
+    // 4. Subscribe to push
+    const existing = await registration.pushManager.getSubscription();
+    let sub = existing;
+    if (!sub) {
+      sub = await registration.pushManager.subscribe({
+        userVisibleOnly:      true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_KEY),
+      });
+      console.log("[Push] Neue Subscription erstellt");
+    } else {
+      console.log("[Push] Bestehende Subscription gefunden");
+    }
+
+    // 5. Save to Supabase
+    await savePushSubscription(sub, userInfo);
+
+  } catch(e) {
+    console.warn("[Push] Setup fehlgeschlagen:", e.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -3136,7 +3212,7 @@ function App() {
 
   useEffect(() => {
     Monitor.init();
-    setTimeout(askPush, 5000);
+    setTimeout(() => askPush(user), 5000);
     const s = sbAuth.getSession();
     if (s?.access_token) { setSbSession(s); loadProfile(s); }
     setAuthChecked(true);
