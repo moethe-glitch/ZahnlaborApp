@@ -28,3 +28,8 @@
 
 [functions."send-email"]
   timeout = 15
+
+[functions."push-notify"]
+  timeout = 20
+  node_bundler = "esbuild"
+  external_node_modules = ["web-push"]
