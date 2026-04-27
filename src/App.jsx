@@ -3212,11 +3212,24 @@ function App() {
 
   useEffect(() => {
     Monitor.init();
-    setTimeout(() => askPush(user), 5000);
     const s = sbAuth.getSession();
     if (s?.access_token) { setSbSession(s); loadProfile(s); }
     setAuthChecked(true);
   }, [loadProfile]);
+
+  // ── Push: start only when user + session are truly ready ────────
+  const pushDoneRef = useRef(false);
+  useEffect(() => {
+    if (!authChecked) return;
+    if (!sbSession?.access_token) return;
+    if (!user) return;
+    if (Notification.permission === "denied") return;
+    if (pushDoneRef.current) return;
+    pushDoneRef.current = true;
+    // Small delay to ensure everything settled
+    const t = setTimeout(() => askPush(user), 2000);
+    return () => clearTimeout(t);
+  }, [authChecked, sbSession, user]);
 
   // ─── Navigation ──────────────────────────────────────────────────────
   const [navTab,       setNavTab]       = useState("home");
