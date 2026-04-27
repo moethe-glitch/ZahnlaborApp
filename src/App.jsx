@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useCallback, Component } from "react";
 // ═══════════════════════════════════════════════════════════════════════
 const SB_URL  = "https://rfoiokhambyjewpauytn.supabase.co";
 const SB_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJmb2lva2hhbWJ5amV3cGF1eXRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyMzgwMTEsImV4cCI6MjA5MTgxNDAxMX0.Lokl1HrFSx2HSJJFQjd5oM31NfeB3cbyso3nDvdB8bc";
-const VAPID_KEY = "BOYvsqtTQvb4hyEtrI2psM8MjqAg5EnpUq16l-xd-QfgTZPTWSHk6OVvBFGEafdYdxvO3HtKFfCnQz_My9QQu_Y";
+const PUSH_KEY = "BOYvsqtTQvb4hyEtrI2psM8MjqAg5EnpUq16l-xd-QfgTZPTWSHk6OVvBFGEafdYdxvO3HtKFfCnQz_My9QQu_Y";
 const isConf  = () => SB_URL !== "IHRE_SUPABASE_URL";
 const MISSED_MS = 3 * 60 * 1000;
 
@@ -329,7 +329,7 @@ async function askPush(userInfo) {
     if (!sub) {
       sub = await registration.pushManager.subscribe({
         userVisibleOnly:      true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_KEY),
+        applicationServerKey: urlBase64ToUint8Array(PUSH_KEY),
       });
       console.log("[Push] Neue Subscription erstellt");
     } else {
