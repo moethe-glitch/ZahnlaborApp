@@ -243,13 +243,14 @@ Extrahiere die Daten und antworte NUR mit diesem JSON (keine anderen Texte, kein
     "match_confidence": 0.0
   },
   "auftrag": {
+    "zahnarzt": "string oder null (Name des Zahnarztes wenn genannt)",
     "arbeitstyp": "string oder null",
     "zaehne": "string oder null (z.B. 14-16 oder 26)",
     "material": "string oder null",
     "farbe": "string oder null (VITA-Format wenn möglich)",
     "faelligkeit": "YYYY-MM-DD oder null",
     "prioritaet": "Normal oder Dringend oder Notfall",
-    "anweisungen": "string oder null"
+    "anweisungen": "string oder null (Zusammenfassung der klinischen Hinweise)"
   },
   "laborzettel": {
     "text": "Professioneller Laborzettel für Zahntechniker. Nur gesicherte Informationen. Max 5 Sätze. Keine Halluzinationen.",

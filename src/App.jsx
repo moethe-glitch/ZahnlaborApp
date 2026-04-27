@@ -1845,16 +1845,31 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Fehler");
       const r = data.result;
-      // Fill form from KI result
+      // Fill form from KI result — robust mapping
       const newForm = { ...form };
-      if (r.patient?.name)       newForm.patient      = r.patient.name;
-        if (r.auftrag?.arbeitstyp) newForm.arbeitstyp   = r.auftrag.arbeitstyp;
-      if (r.auftrag?.zaehne)     newForm.zahn         = r.auftrag.zaehne;
-      if (r.auftrag?.material)   newForm.anweisungen  = (r.auftrag.material + (r.auftrag.anweisungen ? " — " + r.auftrag.anweisungen : ""));
-      if (r.auftrag?.farbe)      newForm.farbe        = r.auftrag.farbe;
-      if (r.auftrag?.faelligkeit) newForm.faelligkeit = r.auftrag.faelligkeit;
-      if (r.auftrag?.prioritaet) newForm.prioritaet   = r.auftrag.prioritaet;
-      if (r.auftrag?.anweisungen && !r.auftrag?.material) newForm.anweisungen = r.auftrag.anweisungen;
+      if (r.patient?.name)        newForm.patient     = r.patient.name;
+      if (r.auftrag?.zahnarzt)    newForm.zahnarzt    = r.auftrag.zahnarzt;
+      if (r.auftrag?.arbeitstyp)  newForm.arbeitstyp  = r.auftrag.arbeitstyp || newForm.arbeitstyp;
+      newForm.zahn        = r.auftrag?.zahn || r.auftrag?.zaehne || newForm.zahn;
+      newForm.farbe       = r.auftrag?.farbe || newForm.farbe;
+      newForm.faelligkeit = r.auftrag?.faelligkeit || newForm.faelligkeit;
+      newForm.prioritaet  = r.auftrag?.prioritaet || newForm.prioritaet || "Normal";
+      // Build anweisungen from all available KI fields
+      const hinweise = [
+        r.auftrag?.anweisungen,
+        r.auftrag?.material ? `Material: ${r.auftrag.material}` : "",
+        r.auftrag?.zaehne   ? `Zahn: ${r.auftrag.zaehne}` : "",
+        r.auftrag?.farbe    ? `Farbe: ${r.auftrag.farbe}` : "",
+      ].filter(Boolean).join("
+");
+      newForm.anweisungen = hinweise || newForm.anweisungen;
+      // Fallbacks für Pflichtfelder
+      if (!newForm.anweisungen?.trim()) {
+        newForm.anweisungen = [newForm.arbeitstyp, newForm.zahn, newForm.farbe].filter(Boolean).join(" – ") || "Automatisch per Spracheingabe erstellt";
+      }
+      if (!newForm.faelligkeit) {
+        newForm.faelligkeit = new Date(Date.now() + 14*24*60*60*1000).toISOString().slice(0,10);
+      }
       setForm(newForm);
       setLaborzettel(r.laborzettel?.text || "");
       setWarnungen([...(r.meta?.fehlende_felder||[]).map(f=>"Fehlt: "+f), ...(r.laborzettel?.warnungen||[])]);
@@ -1869,9 +1884,14 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
 
   // ── Save ──────────────────────────────────────────────────────
   const save = async () => {
-    if (!form.patient.trim() || !form.zahnarzt.trim() || !form.faelligkeit || !form.anweisungen.trim()) {
-      setErr("Bitte alle Pflichtfelder ausfüllen (Patient, Zahnarzt, Fälligkeit, Anweisungen)"); return;
+    // Fallback anweisungen before validation
+    if (!form.anweisungen?.trim()) {
+      const fb = [form.arbeitstyp, form.zahn, form.farbe].filter(Boolean).join(" – ") || "Automatisch per Spracheingabe erstellt";
+      setForm(p => ({ ...p, anweisungen: fb }));
+      form = { ...form, anweisungen: fb };
     }
+    if (!form.patient.trim()) { setErr("Patient ist Pflichtfeld"); return; }
+    if (!form.faelligkeit)    { setErr("Fälligkeitsdatum ist Pflicht"); return; }
     setSaving(true); setErr(null);
     const anwFull = laborzettel ? (form.anweisungen ? form.anweisungen + "\n\nLaborzettel:\n" + laborzettel : laborzettel) : form.anweisungen;
     const a = { ...form, anweisungen: anwFull, id: genId(), status: "Eingang", eingang: today(), verlauf: JSON.stringify([{ datum: today(), status: "Eingang", notiz: "" }]), fotos: "[]", created_at: new Date().toISOString() };
