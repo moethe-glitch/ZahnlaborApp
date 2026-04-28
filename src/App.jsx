@@ -2201,11 +2201,12 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
   // ── Lightbox: load signed URL when index changes ────────────
   useEffect(() => {
     let cancelled = false;
-    if (lightboxIdx === null || !fotos?.[lightboxIdx]) { setLightboxSrc(null); return; }
+    const arr = Array.isArray(localA.fotos) ? localA.fotos : (typeof localA.fotos === "string" ? (() => { try { return JSON.parse(localA.fotos || "[]"); } catch { return []; } })() : []);
+    if (lightboxIdx === null || !arr[lightboxIdx]) { setLightboxSrc(null); return; }
     setLightboxSrc(null); setLightboxZoom(1); setLightboxPan({ x: 0, y: 0 });
-    getPhotoUrl(fotos[lightboxIdx]).then(url => { if (!cancelled) setLightboxSrc(url); }).catch(() => { if (!cancelled) setLightboxSrc(null); });
+    getPhotoUrl(arr[lightboxIdx]).then(url => { if (!cancelled) setLightboxSrc(url); }).catch(() => { if (!cancelled) setLightboxSrc(null); });
     return () => { cancelled = true; };
-  }, [lightboxIdx, fotos]);
+  }, [lightboxIdx, localA.fotos]);
 
   // ── Lightbox touch helpers ───────────────────────────────────
   const lbDist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
