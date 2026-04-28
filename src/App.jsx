@@ -1860,8 +1860,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
         r.auftrag?.material ? `Material: ${r.auftrag.material}` : "",
         r.auftrag?.zaehne   ? `Zahn: ${r.auftrag.zaehne}` : "",
         r.auftrag?.farbe    ? `Farbe: ${r.auftrag.farbe}` : "",
-      ].filter(Boolean).join("
-");
+      ].filter(Boolean).join(" | ");
       newForm.anweisungen = hinweise || newForm.anweisungen;
       // Fallbacks für Pflichtfelder
       if (!newForm.anweisungen?.trim()) {
