@@ -2191,8 +2191,65 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
   const [localA,     setLocalA]     = useState(a);
   const [showAnw,    setShowAnw]    = useState(false);
   const [showEdit,   setShowEdit]   = useState(false);
+  const [lightboxIdx,  setLightboxIdx]  = useState(null);
+  const [lightboxSrc,  setLightboxSrc]  = useState(null);
+  const [lightboxZoom, setLightboxZoom] = useState(1);
+  const [lightboxPan,  setLightboxPan]  = useState({ x: 0, y: 0 });
+  const touchRef = useRef({ mode: null, startDist: 0, startZoom: 1, startX: 0, startY: 0, panX: 0, panY: 0, lastTap: 0 });
   const [anwText,    setAnwText]    = useState(ss(a.anweisungen));
-  const swipeRef = useSwipeBack(onBack, !showStatus && !showSms && !showFoto && !showAnw);
+
+  // ── Lightbox: load signed URL when index changes ────────────
+  useEffect(() => {
+    let cancelled = false;
+    if (lightboxIdx === null || !fotos?.[lightboxIdx]) { setLightboxSrc(null); return; }
+    setLightboxSrc(null); setLightboxZoom(1); setLightboxPan({ x: 0, y: 0 });
+    getPhotoUrl(fotos[lightboxIdx]).then(url => { if (!cancelled) setLightboxSrc(url); }).catch(() => { if (!cancelled) setLightboxSrc(null); });
+    return () => { cancelled = true; };
+  }, [lightboxIdx, fotos]);
+
+  // ── Lightbox touch helpers ───────────────────────────────────
+  const lbDist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  const lbClamp = (v, mn, mx) => Math.max(mn, Math.min(mx, v));
+
+  const onLbTouchStart = (e) => {
+    if (e.touches.length === 2) {
+      touchRef.current.mode = "pinch";
+      touchRef.current.startDist = lbDist(e.touches[0], e.touches[1]);
+      touchRef.current.startZoom = lightboxZoom;
+    } else if (e.touches.length === 1) {
+      const now = Date.now();
+      if (now - touchRef.current.lastTap < 280) {
+        const nz = lightboxZoom > 1 ? 1 : 2;
+        setLightboxZoom(nz);
+        if (nz === 1) setLightboxPan({ x: 0, y: 0 });
+      }
+      touchRef.current.lastTap = now;
+      touchRef.current.mode = "pan";
+      touchRef.current.startX = e.touches[0].clientX;
+      touchRef.current.startY = e.touches[0].clientY;
+      touchRef.current.panX = lightboxPan.x;
+      touchRef.current.panY = lightboxPan.y;
+    }
+  };
+
+  const onLbTouchMove = (e) => {
+    if (touchRef.current.mode === "pinch" && e.touches.length === 2) {
+      e.preventDefault();
+      const d = lbDist(e.touches[0], e.touches[1]);
+      const nz = lbClamp(touchRef.current.startZoom * (d / touchRef.current.startDist), 1, 4);
+      setLightboxZoom(nz);
+      if (nz === 1) setLightboxPan({ x: 0, y: 0 });
+    } else if (touchRef.current.mode === "pan" && e.touches.length === 1 && lightboxZoom > 1) {
+      e.preventDefault();
+      setLightboxPan({ x: touchRef.current.panX + (e.touches[0].clientX - touchRef.current.startX), y: touchRef.current.panY + (e.touches[0].clientY - touchRef.current.startY) });
+    }
+  };
+
+  const onLbTouchEnd = () => {
+    touchRef.current.mode = null;
+    if (lightboxZoom <= 1) { setLightboxZoom(1); setLightboxPan({ x: 0, y: 0 }); }
+  };
+  const swipeRef = useSwipeBack(onBack, !showStatus && !showSms && !showFoto && !showAnw && lightboxIdx === null);
 
   useEffect(() => {
     if (!showAnw) {
@@ -2288,7 +2345,7 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
             <div style={{ fontSize: 13, fontWeight: 700, color: C.inkMd, marginBottom: 10 }}>Fotos ({fotos.length})</div>
             <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
               {fotos.map((path, i) => (
-                <SignedImg key={i} path={path} onClick={() => getPhotoUrl(path).then(url => window.open(url))} style={{ width: 88, height: 88, borderRadius: 14, objectFit: "cover", flexShrink: 0, boxShadow: "0 2px 10px rgba(0,0,0,0.12)", cursor: "zoom-in" }} />
+                <SignedImg key={i} path={path} onClick={() => setLightboxIdx(i)} style={{ width: 88, height: 88, borderRadius: 14, objectFit: "cover", flexShrink: 0, boxShadow: "0 2px 10px rgba(0,0,0,0.12)", cursor: "zoom-in" }} />
               ))}
             </div>
           </div>
@@ -2321,6 +2378,38 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
       {showStatus && <StatusSheet current={ss(localA.status)} onSelect={handleStatus} onClose={() => setShowStatus(false)} />}
       {showSms    && <SmsSheet auftrag={localA} onClose={() => setShowSms(false)} />}
       {showFoto   && <FotoSheet auftragId={localA.id} onClose={() => setShowFoto(false)} onUploaded={url => setLocalA(p => ({ ...p, fotos: [...(Array.isArray(p.fotos) ? p.fotos : []), url] }))} />}
+      {lightboxIdx !== null && (
+        <div style={{ position:"fixed", inset:0, zIndex:9999, background:"rgba(0,0,0,.93)", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", touchAction:"none" }}>
+          {/* Close */}
+          <button onClick={() => { setLightboxIdx(null); setLightboxZoom(1); setLightboxPan({x:0,y:0}); }}
+            style={{ position:"absolute", top:16, right:16, zIndex:10001, background:"rgba(255,255,255,0.15)", border:"none", color:"#fff", borderRadius:10, width:40, height:40, fontSize:22, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
+          {/* Prev */}
+          {fotos.length > 1 && (
+            <button onClick={() => { setLightboxIdx((lightboxIdx - 1 + fotos.length) % fotos.length); setLightboxZoom(1); setLightboxPan({x:0,y:0}); }}
+              style={{ position:"absolute", left:12, zIndex:10001, background:"rgba(255,255,255,0.15)", border:"none", color:"#fff", borderRadius:10, width:40, height:40, fontSize:22, cursor:"pointer" }}>‹</button>
+          )}
+          {/* Image area with touch */}
+          <div onTouchStart={onLbTouchStart} onTouchMove={onLbTouchMove} onTouchEnd={onLbTouchEnd}
+            style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", touchAction:"none" }}>
+            {lightboxSrc
+              ? <img src={lightboxSrc} alt="" draggable={false}
+                  style={{ maxWidth:"95vw", maxHeight:"88vh", objectFit:"contain", userSelect:"none", touchAction:"none",
+                    transform:`translate(${lightboxPan.x}px,${lightboxPan.y}px) scale(${lightboxZoom})`,
+                    transition: touchRef.current.mode ? "none" : "transform .15s ease" }} />
+              : <div style={{ color:"rgba(255,255,255,0.6)", fontSize:15 }}>⏳ Bild wird geladen…</div>
+            }
+          </div>
+          {/* Next */}
+          {fotos.length > 1 && (
+            <button onClick={() => { setLightboxIdx((lightboxIdx + 1) % fotos.length); setLightboxZoom(1); setLightboxPan({x:0,y:0}); }}
+              style={{ position:"absolute", right:12, zIndex:10001, background:"rgba(255,255,255,0.15)", border:"none", color:"#fff", borderRadius:10, width:40, height:40, fontSize:22, cursor:"pointer" }}>›</button>
+          )}
+          {/* Counter */}
+          <div style={{ position:"absolute", bottom:24, left:"50%", transform:"translateX(-50%)", color:"rgba(255,255,255,0.6)", fontSize:13, fontWeight:600, background:"rgba(0,0,0,0.4)", borderRadius:20, padding:"4px 14px", zIndex:10001 }}>
+            {lightboxIdx + 1} / {fotos.length}
+          </div>
+        </div>
+      )}
       {showEdit && (
         <Sheet onClose={() => setShowEdit(false)} title="Auftrag bearbeiten" maxHeight="96vh">
           <AuftragEditSheet
