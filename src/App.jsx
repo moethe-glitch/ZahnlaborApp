@@ -1879,7 +1879,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
       setMode("review");
     } catch(e) {
       clearInterval(t);
-      setErr("KI-Analyse fehlgeschlagen — bitte manuell eingeben");
+      setErr("KI-Fehler: " + (e?.message || "Unbekannt"));
       setMode("manual");
     }
   };
