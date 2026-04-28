@@ -1783,6 +1783,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
 
   // ── Voice states ──────────────────────────────────────────────
   const [transkript,  setTranskript]  = useState("");
+  const transkriptRef = useRef("");
   const [recording,   setRecording]   = useState(false);
   const [procMsg,     setProcMsg]     = useState("Auftrag wird analysiert…");
   const [reviewData,  setReviewData]  = useState(null);
@@ -1795,6 +1796,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
 
   // ── Voice: Start recording ────────────────────────────────────
   const startRecording = () => {
+    transkriptRef.current = ""; setTranskript("");
     try {
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SR) { setErr("Spracherkennung nicht verfügbar — bitte manuell eingeben"); setMode("manual"); return; }
@@ -1807,6 +1809,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
         for (let i = 0; i < e.results.length; i++) {
           if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
         }
+        transkriptRef.current = final;
         setTranskript(final);
       };
       r.onerror = e => {
@@ -1839,7 +1842,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
       const res = await fetch("/.netlify/functions/ai-analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "voice", transkript, patienten: (patienten||[]).slice(0,50).map(p=>({name:p.name})) }),
+        body: JSON.stringify({ mode: "voice", transkript: transkriptRef.current || transkript, patienten: (patienten||[]).slice(0,50).map(p=>({name:p.name})) }),
       });
       clearInterval(t);
       const data = await res.json();
