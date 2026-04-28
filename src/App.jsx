@@ -33,7 +33,30 @@ const sbAuth = {
   setSession: (s) => {
     try { localStorage.setItem("sb_session", s ? JSON.stringify(s) : "null"); } catch {} 
   },
-}; // 3 Minuten bis "verpasst"
+  refreshSession: async () => {
+    const s = sbAuth.getSession();
+    if (!s?.refresh_token) return null;
+    try {
+      const res = await fetch(`${SB_URL}/auth/v1/token?grant_type=refresh_token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SB_KEY },
+        body: JSON.stringify({ refresh_token: s.refresh_token }),
+      });
+      if (!res.ok) { console.warn("[sbAuth] Refresh fehlgeschlagen:", res.status); return null; }
+      const data = await res.json();
+      sbAuth.setSession(data);
+      return data;
+    } catch(e) { console.warn("[sbAuth] Refresh error:", e.message); return null; }
+  },
+};
+
+function isTokenExpired(session) {
+  if (!session?.access_token) return true;
+  try {
+    const payload = JSON.parse(atob(session.access_token.split(".")[1]));
+    return payload.exp <= Math.floor(Date.now() / 1000) + 30;
+  } catch { return true; }
+} // 3 Minuten bis "verpasst"
 
 // ═══════════════════════════════════════════════════════════════════════
 // § DESIGN TOKENS — Warm Dental Premium
@@ -3317,9 +3340,26 @@ function App() {
 
   useEffect(() => {
     Monitor.init();
-    const s = sbAuth.getSession();
-    if (s?.access_token) { setSbSession(s); loadProfile(s); }
-    setAuthChecked(true);
+    (async () => {
+      let s = sbAuth.getSession();
+      if (s && isTokenExpired(s)) {
+        console.log("[App] Token abgelaufen — refresh...");
+        const refreshed = await sbAuth.refreshSession();
+        if (refreshed) {
+          s = refreshed;
+          pushDoneRef.current = false; // Push nach Refresh neu initialisieren
+          console.log("[App] Token erfolgreich erneuert");
+        } else {
+          console.warn("[App] Refresh fehlgeschlagen — Session gelöscht");
+          sbAuth.setSession(null);
+          setSbSession(null);
+          setAuthChecked(true);
+          return;
+        }
+      }
+      if (s?.access_token) { setSbSession(s); await loadProfile(s); }
+      setAuthChecked(true);
+    })();
   }, [loadProfile]);
 
   // ── Push: start only when user + session are truly ready ────────
