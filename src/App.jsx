@@ -142,13 +142,14 @@ const CSS = `
 // § STATUS SYSTEM — vollständig mit 7 Status
 // ═══════════════════════════════════════════════════════════════════════
 const STATUS_LIST = [
-  "Eingang", "In Arbeit", "Qualitätskontrolle",
+  "Eingang", "In Arbeit", "Extern", "Qualitätskontrolle",
   "Bereit", "Zurückgeschickt", "Eingesetzt", "Archiviert"
 ];
 
 const STATUS_META = {
   "Eingang":           { dot: C.stEin,  bg: C.stEinBg,  text: "#92400E",  icon: "📥", desc: "Neu eingegangen" },
   "In Arbeit":         { dot: C.stArb,  bg: C.stArbBg,  text: "#1D4ED8",  icon: "🔧", desc: "Wird bearbeitet" },
+  "Extern":             { dot: "#D97706", bg: "#FEF3C7", text: "#92400E",  icon: "🔄", desc: "Extern in Bearbeitung" },
   "Qualitätskontrolle":{ dot: C.stQual, bg: C.stQualBg, text: "#6D28D9",  icon: "🔍", desc: "Qualität prüfen" },
   "Bereit":            { dot: C.stBer,  bg: C.stBerBg,  text: "#14532D",  icon: "✅", desc: "Bereit zur Einprobe" },
   "Zurückgeschickt":   { dot: C.stZur,  bg: C.stZurBg,  text: "#C2410C",  icon: "↩️", desc: "Vom Zahnarzt zurück" },
@@ -2096,12 +2097,77 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════
 // § DETAIL SCREEN
 // ═══════════════════════════════════════════════════════════════════════
+function AuftragEditSheet({ auftrag, onSave }) {
+  const PRIO = ["Normal","Dringend","Notfall"];
+  const [form, setForm] = useState({
+    patient:    ss(auftrag.patient)    || "",
+    zahnarzt:   ss(auftrag.zahnarzt)   || "",
+    arbeitstyp: ss(auftrag.arbeitstyp) || "",
+    zahn:       ss(auftrag.zahn)       || "",
+    farbe:      ss(auftrag.farbe)      || "",
+    faelligkeit:ss(auftrag.faelligkeit)|| "",
+    prioritaet: ss(auftrag.prioritaet) || "Normal",
+    anweisungen:ss(auftrag.anweisungen)|| "",
+  });
+  const [err, setErr]     = useState(null);
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const handleSave = async () => {
+    if (!form.patient.trim()) { setErr("Patient ist Pflichtfeld"); return; }
+    if (!form.faelligkeit)    { setErr("Fälligkeitsdatum ist Pflicht"); return; }
+    setSaving(true); setErr(null);
+    try { await onSave(form); } catch(e) { setErr(e?.message || "Speichern fehlgeschlagen"); setSaving(false); }
+  };
+
+  const inp = (label, key, type="text") => (
+    <div style={{ marginBottom:14 }}>
+      <div style={{ fontSize:12, fontWeight:700, color:C.fog, textTransform:"uppercase", letterSpacing:"0.7px", marginBottom:5 }}>{label}</div>
+      <input type={type} value={form[key]} onChange={e => set(key, e.target.value)}
+        style={{ width:"100%", background:C.parch, border:`1.5px solid ${C.sand}`, borderRadius:12, padding:"12px 14px", fontSize:15, boxSizing:"border-box", fontFamily:"inherit", color:C.ink }} />
+    </div>
+  );
+
+  return (
+    <div style={{ padding:"4px 4px 40px" }}>
+      {err && <div style={{ background:C.errLt, color:C.err, borderRadius:12, padding:"10px 14px", marginBottom:14, fontSize:14, fontWeight:600 }}>{err}</div>}
+      {inp("Patient *", "patient")}
+      {inp("Zahnarzt", "zahnarzt")}
+      {inp("Arbeitstyp", "arbeitstyp")}
+      {inp("Zahn", "zahn")}
+      {inp("Farbe", "farbe")}
+      {inp("Fälligkeit *", "faelligkeit", "date")}
+      <div style={{ marginBottom:14 }}>
+        <div style={{ fontSize:12, fontWeight:700, color:C.fog, textTransform:"uppercase", letterSpacing:"0.7px", marginBottom:5 }}>Priorität</div>
+        <div style={{ display:"flex", gap:8 }}>
+          {PRIO.map(p => (
+            <button key={p} onClick={() => set("prioritaet", p)}
+              style={{ flex:1, padding:"10px 6px", borderRadius:12, border:`1.5px solid ${form.prioritaet===p?C.sage:C.sand}`, background:form.prioritaet===p?C.sageLt:C.parch, fontSize:13, fontWeight:form.prioritaet===p?700:400, color:form.prioritaet===p?C.sageDk:C.fog, cursor:"pointer" }}>
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ marginBottom:20 }}>
+        <div style={{ fontSize:12, fontWeight:700, color:C.fog, textTransform:"uppercase", letterSpacing:"0.7px", marginBottom:5 }}>Anweisungen</div>
+        <textarea value={form.anweisungen} onChange={e => set("anweisungen", e.target.value)} rows={4}
+          style={{ width:"100%", background:C.parch, border:`1.5px solid ${C.sand}`, borderRadius:12, padding:"12px 14px", fontSize:15, boxSizing:"border-box", fontFamily:"inherit", color:C.ink, resize:"vertical" }} />
+      </div>
+      <button onClick={handleSave} disabled={saving} className="btn-press"
+        style={{ width:"100%", background:`linear-gradient(135deg,${C.sage},${C.sageDk})`, color:C.white, border:"none", borderRadius:14, padding:16, fontSize:16, fontWeight:700, cursor:saving?"default":"pointer", boxShadow:`0 4px 18px ${C.sage}44` }}>
+        {saving ? "Speichern…" : "Auftrag speichern"}
+      </button>
+    </div>
+  );
+}
+
 function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints }) {
   const [showStatus, setShowStatus] = useState(false);
   const [showSms,    setShowSms]    = useState(false);
   const [showFoto,   setShowFoto]   = useState(false);
   const [localA,     setLocalA]     = useState(a);
   const [showAnw,    setShowAnw]    = useState(false);
+  const [showEdit,   setShowEdit]   = useState(false);
   const [anwText,    setAnwText]    = useState(ss(a.anweisungen));
   const swipeRef = useSwipeBack(onBack, !showStatus && !showSms && !showFoto && !showAnw);
 
@@ -2166,6 +2232,7 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
             { icon: "📱", label: "SMS",            action: () => setShowSms(true),   accent: C.pur },
             { icon: "🤖", label: "KI-Hinweise",  action: () => onOpenAIHints?.(localA), accent: C.gold },
             { icon: "✏️",  label: "Anweisungen", action: () => { setAnwText(ss(localA.anweisungen)); setShowAnw(true); }, accent: C.ink },
+            { icon: "📝", label: "Bearbeiten", action: () => setShowEdit(true), accent: C.brand },
           ].map(btn => (
             <button key={btn.label} onClick={btn.action} className="btn-press"
               style={{ background: C.white, border: `1.5px solid ${C.sand}`, borderRadius: 18, padding: "18px 12px", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 2px 12px rgba(28,25,23,0.07)" }}>
@@ -2231,7 +2298,23 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
       {showStatus && <StatusSheet current={ss(localA.status)} onSelect={handleStatus} onClose={() => setShowStatus(false)} />}
       {showSms    && <SmsSheet auftrag={localA} onClose={() => setShowSms(false)} />}
       {showFoto   && <FotoSheet auftragId={localA.id} onClose={() => setShowFoto(false)} onUploaded={url => setLocalA(p => ({ ...p, fotos: [...(Array.isArray(p.fotos) ? p.fotos : []), url] }))} />}
-      {showAnw && (
+      {showEdit && (
+        <Sheet onClose={() => setShowEdit(false)} title="Auftrag bearbeiten" maxHeight="96vh">
+          <AuftragEditSheet
+            auftrag={localA}
+            onSave={async (fields) => {
+              try {
+                if (isConf()) await DB.auftraege.update(localA.id, { ...fields, updated_at: new Date().toISOString() });
+                const upd = { ...localA, ...fields, updated_at: new Date().toISOString() };
+                setLocalA(upd);
+                if (onUpdated) onUpdated(upd);
+                setShowEdit(false);
+              } catch(e) { throw e; }
+            }}
+          />
+        </Sheet>
+      )}
+            {showAnw && (
         <Sheet onClose={() => setShowAnw(false)} title="Anweisungen bearbeiten">
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <textarea value={anwText} onChange={e => setAnwText(e.target.value)} rows={6}
