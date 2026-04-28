@@ -284,7 +284,11 @@ Wichtige Regeln:
         }),
       });
 
-      if (!res.ok) throw new Error(`Claude ${res.status}`);
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("[ai-analyze] Claude error", res.status, errText);
+        throw new Error(`Claude ${res.status}: ${errText.slice(0, 500)}`);
+      }
 
       const data = await res.json();
       const txt  = data.content?.[0]?.text || "{}";
