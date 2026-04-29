@@ -3444,8 +3444,14 @@ function MoreScreen({ user, onNav }) {
 // ── KalenderScreen ─────────────────────────────────────────────
 function KalenderScreen({ auftraege, user }) {
   const isAdmin = user?.rolle === "admin";
-  const today   = new Date().toISOString().slice(0, 10);
-  const [selected, setSelected] = useState(null);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [selected,     setSelected]     = useState(null);
+  const [calYear,      setCalYear]      = useState(new Date().getFullYear());
+  const [calMonth,     setCalMonth]     = useState(new Date().getMonth());
+  const [selectedDate, setSelectedDate] = useState(null);
+
+  const MONTH_NAMES = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+  const DAY_NAMES   = ["Mo","Di","Mi","Do","Fr","Sa","So"];
 
   const sorted = [...(auftraege || [])].sort((a, b) => {
     if (!a.faelligkeit) return 1;
@@ -3455,8 +3461,8 @@ function KalenderScreen({ auftraege, user }) {
 
   const fStatus = (a) => {
     if (!a.faelligkeit) return "normal";
-    if (a.faelligkeit < today) return "overdue";
-    if (a.faelligkeit === today) return "today";
+    if (a.faelligkeit < todayStr) return "overdue";
+    if (a.faelligkeit === todayStr) return "today";
     return "normal";
   };
 
@@ -3465,14 +3471,91 @@ function KalenderScreen({ auftraege, user }) {
     "Bereit":"#10B981","Zurückgeschickt":"#EF4444","Eingesetzt":"#6366F1","Archiviert":"#9CA3AF"
   };
 
+  // byDay map
+  const byDay = new Map();
+  (auftraege || []).forEach(a => {
+    if (!a.faelligkeit) return;
+    const list = byDay.get(a.faelligkeit) || [];
+    list.push(a);
+    byDay.set(a.faelligkeit, list);
+  });
+
+  // Month grid data
+  const firstDay    = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const startOffset = (firstDay + 6) % 7;
+
+  const prevMonth = () => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y-1); } else { setCalMonth(m => m-1); } setSelectedDate(null); };
+  const nextMonth = () => { if (calMonth === 11) { setCalMonth(0);  setCalYear(y => y+1); } else { setCalMonth(m => m+1); } setSelectedDate(null); };
+
+  const filtered = selectedDate ? sorted.filter(a => a.faelligkeit === selectedDate) : sorted;
+
   return (
     <div className="scroll-view" style={{ flex:1, overflowY:"auto" }}>
       <div style={{ padding:"20px 20px 12px", fontSize:22, fontWeight:700, color:C.ink, fontFamily:"Georgia,serif", letterSpacing:"-0.4px" }}>Kalender & Zeiten</div>
+
+      {/* ── Monatskalender ─────────────────────────────────────── */}
+      <div style={{ background:C.white, borderRadius:20, margin:"0 16px 14px", padding:"14px 12px", boxShadow:"0 2px 14px rgba(28,25,23,.07)" }}>
+        {/* Navigation */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+          <button onClick={prevMonth} style={{ background:"none", border:"none", fontSize:22, color:C.ink, cursor:"pointer", padding:"4px 8px" }}>‹</button>
+          <span style={{ fontSize:16, fontWeight:700, color:C.ink }}>{MONTH_NAMES[calMonth]} {calYear}</span>
+          <button onClick={nextMonth} style={{ background:"none", border:"none", fontSize:22, color:C.ink, cursor:"pointer", padding:"4px 8px" }}>›</button>
+        </div>
+        {/* Day headers */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:4 }}>
+          {DAY_NAMES.map(d => (
+            <div key={d} style={{ textAlign:"center", fontSize:11, fontWeight:700, color:C.fog, padding:"2px 0" }}>{d}</div>
+          ))}
+        </div>
+        {/* Day cells */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2 }}>
+          {Array.from({ length: startOffset }).map((_, i) => <div key={`e-${i}`} />)}
+          {Array.from({ length: daysInMonth }).map((_, i) => {
+            const day     = i + 1;
+            const dateStr = `${calYear}-${String(calMonth+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+            const items   = byDay.get(dateStr) || [];
+            const isToday = dateStr === todayStr;
+            const isSel   = dateStr === selectedDate;
+            const hasOverdue = items.some(a => a.faelligkeit < todayStr);
+            const bgColor = isSel ? C.sageLt : hasOverdue ? C.errLt : isToday ? "#FEF3C7" : items.length > 0 ? C.parch : "transparent";
+            const textColor = isToday ? C.warn : hasOverdue && !isSel ? C.err : C.ink;
+            return (
+              <div key={dateStr} onClick={() => setSelectedDate(p => p === dateStr ? null : dateStr)}
+                style={{ borderRadius:10, padding:"5px 2px", textAlign:"center", cursor: items.length > 0 ? "pointer" : "default", background:bgColor, border: isToday ? `1.5px solid ${C.warn}` : isSel ? `1.5px solid ${C.sage}` : "1.5px solid transparent", minHeight:42 }}>
+                <div style={{ fontSize:13, fontWeight: isToday||isSel ? 800 : 400, color:textColor }}>{day}</div>
+                {items.length > 0 && items.length <= 2 && (
+                  <div style={{ display:"flex", justifyContent:"center", gap:2, marginTop:3 }}>
+                    {items.map((a, pi) => <div key={pi} style={{ width:5, height:5, borderRadius:"50%", background:STATUS_META_K[a.status]||C.fog }} />)}
+                  </div>
+                )}
+                {items.length > 2 && (
+                  <div style={{ fontSize:10, fontWeight:700, color:C.white, background:hasOverdue?C.err:C.sage, borderRadius:8, padding:"1px 4px", margin:"2px auto 0", display:"inline-block" }}>{items.length}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {/* Legende */}
+        <div style={{ display:"flex", gap:12, marginTop:12, flexWrap:"wrap" }}>
+          {[["🔴","überfällig"],["🟡","heute"],["●","geplant (●= Statusfarbe)"]].map(([ic,lb]) => (
+            <div key={lb} style={{ display:"flex", alignItems:"center", gap:4, fontSize:11, color:C.fog }}>
+              <span style={{ fontSize:11 }}>{ic}</span><span>{lb}</span>
+            </div>
+          ))}
+        </div>
+        {selectedDate && (
+          <div style={{ marginTop:10, fontSize:13, fontWeight:600, color:C.sage, textAlign:"center" }}>
+            Filter: {selectedDate} — <span onClick={() => setSelectedDate(null)} style={{ color:C.err, cursor:"pointer" }}>× aufheben</span>
+          </div>
+        )}
+      </div>
+
       <div style={{ padding:"0 16px calc(env(safe-area-inset-bottom,0px) + 100px)", display:"flex", flexDirection:"column", gap:10 }}>
         {sorted.length === 0 && (
           <div style={{ textAlign:"center", color:C.fog, marginTop:60, fontSize:16 }}>Keine Aufträge vorhanden</div>
         )}
-        {sorted.map(a => {
+        {filtered.map(a => {
           const fs = fStatus(a);
           const isOpen = selected === a.id;
           const { dauern, gesamtBisEingesetzt } = isAdmin && isOpen ? berechneStatusDauern(a) : { dauern: {}, gesamtBisEingesetzt: null };
