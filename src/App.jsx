@@ -1111,7 +1111,7 @@ function BottomNav({ tab, setTab, unreadCount, missedCount, role }) {
   const TABS = [
     { k: "home",      icon: "📋", label: "Aufträge" },
     { k: "chat",      icon: "💬", label: "Chat" },
-    { k: "scan",      icon: "📷", label: "Scannen" },
+    { k: "kalender",  icon: "📅", label: "Kalender" },
     { k: isGL ? "analysis" : "materials", icon: isGL ? "📊" : "🧪", label: isGL ? "Analyse" : "Material" },
     { k: "more",      icon: "⋯",  label: "Mehr" },
   ];
@@ -2120,6 +2120,35 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════
 // § DETAIL SCREEN
 // ═══════════════════════════════════════════════════════════════════════
+// ── Statusdauer-Berechnung ─────────────────────────────────────
+function berechneStatusDauern(a) {
+  let v = [];
+  try { v = Array.isArray(a.verlauf) ? a.verlauf : JSON.parse(a.verlauf || "[]"); } catch { v = []; }
+  if (!v.length || v[0].status !== "Eingang") v = [{ datum: a.eingang || a.created_at?.slice(0,10), status: "Eingang" }, ...v];
+  const today = new Date().toISOString().slice(0, 10);
+  const diffDays = (d1, d2) => Math.max(0, Math.round((new Date(d2) - new Date(d1)) / 86400000));
+  const dauern = {};
+  let gesamtBisEingesetzt = null;
+  let eingesetztDatum = null;
+  for (let i = 0; i < v.length; i++) {
+    const status = v[i].status;
+    const nextDatum = i < v.length - 1 ? v[i + 1].datum : today;
+    const d = diffDays(v[i].datum, nextDatum);
+    dauern[status] = (dauern[status] || 0) + d;
+    if (v[i + 1]?.status === "Eingesetzt" || status === "Eingesetzt") {
+      if (!eingesetztDatum && status === "Eingesetzt") eingesetztDatum = v[i].datum;
+    }
+  }
+  // Gesamtdauer bis Eingesetzt
+  const eingesetztIdx = v.findLastIndex ? v.findLastIndex(e => e.status === "Eingesetzt") : [...v].reverse().findIndex(e => e.status === "Eingesetzt");
+  if (eingesetztIdx >= 0) {
+    const real = v.findLastIndex ? v.findLastIndex(e => e.status === "Eingesetzt") : v.length - 1 - [...v].reverse().findIndex(e => e.status === "Eingesetzt");
+    const endDatum = real < v.length - 1 ? v[real + 1].datum : today;
+    gesamtBisEingesetzt = diffDays(v[0].datum, endDatum);
+  }
+  return { dauern, gesamtBisEingesetzt };
+}
+
 function AuftragEditSheet({ auftrag, onSave }) {
   const PRIO = ["Normal","Dringend","Notfall"];
   const [form, setForm] = useState({
@@ -3276,7 +3305,7 @@ function NameEditor({ user, onNameSaved }) {
   );
 }
 
-function SettingsScreen({ user, dark, onToggleDark, onLogout, onNameSaved }) {
+function SettingsScreen({ user, dark, onToggleDark, onLogout, onNameSaved, onOpenBeleg }) {
   const [pin, setPin] = useState(""); const [pinConf, setPinConf] = useState(""); const [pinMsg, setPinMsg] = useState(null);
   const [pinOn, setPinOn] = useState(getPinOn());
 
@@ -3351,6 +3380,19 @@ function SettingsScreen({ user, dark, onToggleDark, onLogout, onNameSaved }) {
           <NameEditor user={user} onNameSaved={onNameSaved} />
         </Card>
 
+        {/* Beleg scannen */}
+        {onOpenBeleg && (
+          <button onClick={onOpenBeleg} className="btn-press"
+            style={{ width:"100%", background:C.parch, border:`1.5px solid ${C.sand}`, color:C.ink, borderRadius:16, padding:"16px 20px", fontSize:16, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:12, marginBottom:16, textAlign:"left" }}>
+            <span style={{ fontSize:24 }}>📷</span>
+            <div>
+              <div style={{ fontSize:16, fontWeight:700, color:C.ink }}>Beleg scannen</div>
+              <div style={{ fontSize:13, color:C.fog, marginTop:2 }}>Rechnung oder Lieferschein erfassen</div>
+            </div>
+            <span style={{ marginLeft:"auto", color:C.fog, fontSize:20 }}>›</span>
+          </button>
+        )}
+
         {/* Admin: Mitarbeiterverwaltung */}
         {user?.rolle === "admin" && <MitarbeiterAdmin user={user} />}
 
@@ -3398,6 +3440,85 @@ function MoreScreen({ user, onNav }) {
   );
 }
 
+
+// ── KalenderScreen ─────────────────────────────────────────────
+function KalenderScreen({ auftraege, user }) {
+  const isAdmin = user?.rolle === "admin";
+  const today   = new Date().toISOString().slice(0, 10);
+  const [selected, setSelected] = useState(null);
+
+  const sorted = [...(auftraege || [])].sort((a, b) => {
+    if (!a.faelligkeit) return 1;
+    if (!b.faelligkeit) return -1;
+    return a.faelligkeit.localeCompare(b.faelligkeit);
+  });
+
+  const fStatus = (a) => {
+    if (!a.faelligkeit) return "normal";
+    if (a.faelligkeit < today) return "overdue";
+    if (a.faelligkeit === today) return "today";
+    return "normal";
+  };
+
+  const STATUS_META_K = {
+    "Eingang":"#F59E0B","In Arbeit":"#3B82F6","Extern":"#D97706","Qualitätskontrolle":"#8B5CF6",
+    "Bereit":"#10B981","Zurückgeschickt":"#EF4444","Eingesetzt":"#6366F1","Archiviert":"#9CA3AF"
+  };
+
+  return (
+    <div className="scroll-view" style={{ flex:1, overflowY:"auto" }}>
+      <div style={{ padding:"20px 20px 12px", fontSize:22, fontWeight:700, color:C.ink, fontFamily:"Georgia,serif", letterSpacing:"-0.4px" }}>Kalender & Zeiten</div>
+      <div style={{ padding:"0 16px calc(env(safe-area-inset-bottom,0px) + 100px)", display:"flex", flexDirection:"column", gap:10 }}>
+        {sorted.length === 0 && (
+          <div style={{ textAlign:"center", color:C.fog, marginTop:60, fontSize:16 }}>Keine Aufträge vorhanden</div>
+        )}
+        {sorted.map(a => {
+          const fs = fStatus(a);
+          const isOpen = selected === a.id;
+          const { dauern, gesamtBisEingesetzt } = isAdmin && isOpen ? berechneStatusDauern(a) : { dauern: {}, gesamtBisEingesetzt: null };
+          return (
+            <div key={a.id}
+              style={{ background:C.white, borderRadius:18, padding:"14px 16px", boxShadow:"0 2px 12px rgba(28,25,23,.08)", border:`1.5px solid ${fs==="overdue"?C.err:fs==="today"?C.warn:C.sand}`, cursor: isAdmin ? "pointer" : "default" }}
+              onClick={() => isAdmin && setSelected(isOpen ? null : a.id)}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:16, color:C.ink, fontFamily:"Georgia,serif" }}>
+                    {fs==="overdue"?"🔴 ":fs==="today"?"🟡 ":"⚪ "}{a.patient}
+                  </div>
+                  <div style={{ fontSize:13, color:C.fog, marginTop:2 }}>{a.arbeitstyp}{a.zahnarzt ? ` · ${a.zahnarzt}` : ""}</div>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:STATUS_META_K[a.status]||C.fog, background:`${STATUS_META_K[a.status]||C.fog}18`, borderRadius:10, padding:"3px 10px" }}>{a.status}</div>
+                  {a.faelligkeit && <div style={{ fontSize:12, color:fs==="overdue"?C.err:fs==="today"?C.warn:C.fog }}>{a.faelligkeit}</div>}
+                </div>
+              </div>
+              {isAdmin && isOpen && (
+                <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${C.sand}` }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:C.fog, textTransform:"uppercase", letterSpacing:"0.7px", marginBottom:8 }}>Statusdauer</div>
+                  {Object.entries(dauern).map(([s, d]) => (
+                    <div key={s} style={{ display:"flex", justifyContent:"space-between", fontSize:14, color:C.ink, marginBottom:4 }}>
+                      <span style={{ color:STATUS_META_K[s]||C.fog }}>{s}</span>
+                      <span style={{ fontWeight:600 }}>{d} {d===1?"Tag":"Tage"}</span>
+                    </div>
+                  ))}
+                  {gesamtBisEingesetzt !== null && (
+                    <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:700, color:C.ink, marginTop:8, paddingTop:8, borderTop:`1px solid ${C.sand}` }}>
+                      <span>Gesamt bis Eingesetzt</span>
+                      <span>{gesamtBisEingesetzt} Tage</span>
+                    </div>
+                  )}
+                  {gesamtBisEingesetzt === null && (
+                    <div style={{ fontSize:12, color:C.fog, fontStyle:"italic", marginTop:4 }}>Noch nicht eingesetzt</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // § MAIN APP — vollständige State-Logik + Navigation
@@ -3667,6 +3788,11 @@ function App() {
             onOpenChat={(aid, a) => openChat(aid, a)} />
         </div>
       );
+      case "kalender": return (
+        <div key="kalender" className="fade-up" style={{ ...wrapSt, overflowY:"auto", WebkitOverflowScrolling:"touch", display:"flex", flexDirection:"column" }}>
+          <KalenderScreen auftraege={auftraege} user={user} />
+        </div>
+      );
       case "scan": return (
         <div key="scan" className="fade-up" style={{ ...wrapSt, overflowY:"auto", WebkitOverflowScrolling:"touch" }}>
           <div style={{ padding:"20px 20px 12px" }}>
@@ -3725,6 +3851,7 @@ function App() {
       case "settings": return (
         <div key="settings" className="fade-up" style={wrapSt}>
           <SettingsScreen user={user} dark={dark} onToggleDark={toggleDark}
+            onOpenBeleg={() => setNavTab("scan")}
             onNameSaved={newName => { const u={...user, name:newName}; setUser(u); LS.set("user",u); }}
             onLogout={async () => {
             if (sbSession?.access_token) await sbAuth.signOut(sbSession.access_token);
