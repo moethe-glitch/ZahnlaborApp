@@ -1799,7 +1799,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
 
   // ── Mode: voice | manual ──────────────────────────────────────
   const [mode,      setMode]      = useState("choose"); // choose | recording | processing | review | manual
-  const [form,      setForm]      = useState({ patient: "", zahnarzt: "", arbeitstyp: "Krone", farbe: "", faelligkeit: new Date(Date.now() + 14*24*60*60*1000).toISOString().slice(0,10), anweisungen: "", dringend: false, grund_rueck: "", prioritaet: "Normal", zahn: "" });
+  const [form,      setForm]      = useState({ patient: "", zahnarzt: "", arbeitstyp: "Krone", farbe: "", faelligkeit: new Date(Date.now() + 10*24*60*60*1000).toISOString().slice(0,10), anweisungen: "", dringend: false, grund_rueck: "", prioritaet: "Normal", zahn: "" });
   const [saving,    setSaving]    = useState(false);
   const [err,       setErr]       = useState(null);
   const [done,      setDone]      = useState(false);
@@ -1894,7 +1894,7 @@ function NewAuftragSheet({ patienten, onSave, onClose }) {
         newForm.anweisungen = [newForm.arbeitstyp, newForm.zahn, newForm.farbe].filter(Boolean).join(" – ") || "Automatisch per Spracheingabe erstellt";
       }
       if (!newForm.faelligkeit) {
-        newForm.faelligkeit = new Date(Date.now() + 14*24*60*60*1000).toISOString().slice(0,10);
+        newForm.faelligkeit = new Date(Date.now() + 10*24*60*60*1000).toISOString().slice(0,10);
       }
       setForm(newForm);
       setLaborzettel(r.laborzettel?.text || "");
@@ -2149,7 +2149,7 @@ function berechneStatusDauern(a) {
   return { dauern, gesamtBisEingesetzt };
 }
 
-function AuftragEditSheet({ auftrag, onSave }) {
+function AuftragEditSheet({ auftrag, onSave, isAdmin }) {
   const PRIO = ["Normal","Dringend","Notfall"];
   const [form, setForm] = useState({
     patient:    ss(auftrag.patient)    || "",
@@ -2169,7 +2169,11 @@ function AuftragEditSheet({ auftrag, onSave }) {
     if (!form.patient.trim()) { setErr("Patient ist Pflichtfeld"); return; }
     if (!form.faelligkeit)    { setErr("Fälligkeitsdatum ist Pflicht"); return; }
     setSaving(true); setErr(null);
-    try { await onSave(form); } catch(e) { setErr(e?.message || "Speichern fehlgeschlagen"); setSaving(false); }
+    try {
+      const patch = { ...form };
+      if (!isAdmin) delete patch.faelligkeit;
+      await onSave(patch);
+    } catch(e) { setErr(e?.message || "Speichern fehlgeschlagen"); setSaving(false); }
   };
 
   const inp = (label, key, type="text") => (
@@ -2188,7 +2192,12 @@ function AuftragEditSheet({ auftrag, onSave }) {
       {inp("Arbeitstyp", "arbeitstyp")}
       {inp("Zahn", "zahn")}
       {inp("Farbe", "farbe")}
-      {inp("Fälligkeit *", "faelligkeit", "date")}
+      <div style={{ marginBottom:14 }}>
+        <div style={{ fontSize:12, fontWeight:700, color:C.fog, textTransform:"uppercase", letterSpacing:"0.7px", marginBottom:5 }}>Fälligkeit *</div>
+        <input type="date" value={form.faelligkeit} onChange={e => isAdmin && set("faelligkeit", e.target.value)} readOnly={!isAdmin} disabled={!isAdmin}
+          style={{ width:"100%", background: isAdmin ? C.parch : C.sand, border:`1.5px solid ${C.sand}`, borderRadius:12, padding:"12px 14px", fontSize:15, boxSizing:"border-box", fontFamily:"inherit", color: isAdmin ? C.ink : C.fog, cursor: isAdmin ? "text" : "not-allowed" }} />
+        {!isAdmin && <div style={{ fontSize:12, color:C.fog, marginTop:4 }}>Fälligkeitsdatum kann nur von Admin geändert werden</div>}
+      </div>
       <div style={{ marginBottom:14 }}>
         <div style={{ fontSize:12, fontWeight:700, color:C.fog, textTransform:"uppercase", letterSpacing:"0.7px", marginBottom:5 }}>Priorität</div>
         <div style={{ display:"flex", gap:8 }}>
@@ -2444,6 +2453,7 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
         <Sheet onClose={() => setShowEdit(false)} title="Auftrag bearbeiten" maxHeight="96vh">
           <AuftragEditSheet
             auftrag={localA}
+            isAdmin={user?.rolle === "admin"}
             onSave={async (fields) => {
               try {
                 if (isConf()) await DB.auftraege.update(localA.id, { ...fields, updated_at: new Date().toISOString() });
