@@ -48,6 +48,24 @@ const sbAuth = {
       return data;
     } catch(e) { console.warn("[sbAuth] Refresh error:", e.message); return null; }
   },
+  updatePassword: async (accessToken, password) => {
+    const res = await fetch(`${SB_URL}/auth/v1/user`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", apikey: SB_KEY, Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ password }),
+    });
+    if (!res.ok) { const text = await res.text(); throw new Error(text || "Passwort konnte nicht geändert werden"); }
+    return res.json();
+  },
+  resetPasswordForEmail: async (email, redirectTo) => {
+    const res = await fetch(`${SB_URL}/auth/v1/recover`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SB_KEY },
+      body: JSON.stringify({ email, redirect_to: redirectTo }),
+    });
+    if (!res.ok) { const text = await res.text(); throw new Error(text || "Reset-Link konnte nicht gesendet werden"); }
+    return res.json();
+  },
 };
 
 function isTokenExpired(session) {
@@ -765,10 +783,12 @@ function PinPad({ onSubmit, error, dark }) {
 // § LOGIN SCREEN — Premium Apple style
 // ═══════════════════════════════════════════════════════════════════════
 function AuthLoginScreen({ onAuthSuccess }) {
-  const [email,    setEmail]    = useState("");
-  const [password, setPassword] = useState("");
-  const [loading,  setLoading]  = useState(false);
-  const [err,      setErr]      = useState(null);
+  const [email,      setEmail]      = useState("");
+  const [password,   setPassword]   = useState("");
+  const [loading,    setLoading]    = useState(false);
+  const [err,        setErr]        = useState(null);
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotMsg,  setForgotMsg]  = useState("");
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) { setErr("E-Mail und Passwort eingeben"); return; }
@@ -781,6 +801,18 @@ function AuthLoginScreen({ onAuthSuccess }) {
     setLoading(false);
   };
 
+  const handleForgot = async () => {
+    if (!email.trim()) { setErr("Bitte E-Mail eingeben"); return; }
+    setLoading(true); setErr(null); setForgotMsg("");
+    try {
+      await sbAuth.resetPasswordForEmail(email.trim(), "https://mothe.netlify.app/");
+      setForgotMsg("Wenn diese E-Mail existiert, wurde ein Link gesendet.");
+    } catch(e) { setErr(e.message || "Fehler beim Senden"); }
+    setLoading(false);
+  };
+
+  const inpStyle = { background:"rgba(255,255,255,0.12)", border:"1.5px solid rgba(255,255,255,0.18)", borderRadius:16, padding:"16px 18px", fontSize:16, color:C.white, fontFamily:"inherit", outline:"none" };
+
   return (
     <div style={{ minHeight:"100vh", background:`linear-gradient(175deg,${C.brand} 0%,#3D2823 45%,#2C3E35 100%)`, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 28px" }}>
       <style>{CSS}</style>
@@ -788,15 +820,27 @@ function AuthLoginScreen({ onAuthSuccess }) {
       <div style={{ color:C.white, fontSize:28, fontWeight:700, fontFamily:"Georgia,serif", marginBottom:6 }}>Mothe App</div>
       <div style={{ color:"rgba(255,255,255,0.45)", fontSize:14, marginBottom:44 }}>Die 3 Zahnärzte by Mahal</div>
       <div style={{ width:"100%", maxWidth:340, display:"flex", flexDirection:"column", gap:14 }}>
-        <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="E-Mail" autoCapitalize="none"
-          style={{ background:"rgba(255,255,255,0.12)", border:"1.5px solid rgba(255,255,255,0.18)", borderRadius:16, padding:"16px 18px", fontSize:16, color:C.white, fontFamily:"inherit", outline:"none" }} />
-        <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="Passwort"
-          onKeyDown={e=>{ if(e.key==="Enter") handleLogin(); }}
-          style={{ background:"rgba(255,255,255,0.12)", border:"1.5px solid rgba(255,255,255,0.18)", borderRadius:16, padding:"16px 18px", fontSize:16, color:C.white, fontFamily:"inherit", outline:"none" }} />
+        <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="E-Mail" autoCapitalize="none" style={inpStyle} />
+        {!showForgot && (
+          <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="Passwort"
+            onKeyDown={e=>{ if(e.key==="Enter") handleLogin(); }} style={inpStyle} />
+        )}
         {err && <div style={{ background:"rgba(220,38,38,0.2)", border:"1px solid rgba(220,38,38,0.4)", borderRadius:12, padding:"12px 16px", color:"#FCA5A5", fontSize:14, fontWeight:600 }}>{err}</div>}
-        <button onClick={handleLogin} disabled={loading}
-          style={{ background:loading?`rgba(122,158,142,0.5)`:`linear-gradient(135deg,${C.sage},${C.sageDk})`, color:C.white, border:"none", borderRadius:16, padding:"17px", fontSize:17, fontWeight:700, cursor:loading?"default":"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-          {loading ? "Anmelden…" : "Anmelden"}
+        {forgotMsg && <div style={{ background:"rgba(122,158,142,0.2)", border:"1px solid rgba(122,158,142,0.4)", borderRadius:12, padding:"12px 16px", color:"#6EE7B7", fontSize:14, fontWeight:600 }}>{forgotMsg}</div>}
+        {!showForgot ? (
+          <button onClick={handleLogin} disabled={loading}
+            style={{ background:loading?`rgba(122,158,142,0.5)`:`linear-gradient(135deg,${C.sage},${C.sageDk})`, color:C.white, border:"none", borderRadius:16, padding:"17px", fontSize:17, fontWeight:700, cursor:loading?"default":"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+            {loading ? "Anmelden…" : "Anmelden"}
+          </button>
+        ) : (
+          <button onClick={handleForgot} disabled={loading}
+            style={{ background:loading?`rgba(122,158,142,0.5)`:`linear-gradient(135deg,${C.sage},${C.sageDk})`, color:C.white, border:"none", borderRadius:16, padding:"17px", fontSize:17, fontWeight:700, cursor:loading?"default":"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+            {loading ? "Senden…" : "Reset-Link senden"}
+          </button>
+        )}
+        <button onClick={() => { setShowForgot(p => !p); setErr(null); setForgotMsg(""); }}
+          style={{ background:"none", border:"none", color:"rgba(255,255,255,0.5)", fontSize:13, cursor:"pointer", padding:"4px 0", textDecoration:"underline" }}>
+          {showForgot ? "← Zurück zum Login" : "Passwort vergessen?"}
         </button>
       </div>
     </div>
@@ -1174,6 +1218,7 @@ function AuftragCard({ a, unread = 0, onPress, index = 0 }) {
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             {a.dringend && <span style={{ fontSize: 11, background: C.errLt, color: C.err, borderRadius: 8, padding: "2px 8px", fontWeight: 700 }}>🔴 Dringend</span>}
+          {a.status === "Bereit" && <span style={{ fontSize: 11, background: a.patient_terminiert ? C.okLt : C.warnLt, color: a.patient_terminiert ? C.ok : C.warn, borderRadius: 8, padding: "2px 8px", fontWeight: 700 }}>{a.patient_terminiert ? "✓ terminiert" : "⏳ nicht terminiert"}</span>}
           </div>
         </div>
       </div>
@@ -2329,6 +2374,28 @@ function DetailScreen({ a, user, onBack, onOpenChat, onUpdated, onOpenAIHints })
         </div>
         <StatusBadge status={ss(localA.status)} />
       </div>
+
+      {/* Patient terminiert — nur bei Status Bereit */}
+      {localA.status === "Bereit" && (
+        <div style={{ margin:"8px 16px 0", background: localA.patient_terminiert ? C.okLt : C.warnLt, borderRadius:14, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, cursor:"pointer" }}
+          onClick={async () => {
+            const newVal = !localA.patient_terminiert;
+            setLocalA(p => ({ ...p, patient_terminiert: newVal }));
+            try {
+              if (isConf()) await DB.auftraege.update(localA.id, { patient_terminiert: newVal, updated_at: new Date().toISOString() });
+              if (onUpdated) onUpdated({ ...localA, patient_terminiert: newVal });
+            } catch(e) {
+              setLocalA(p => ({ ...p, patient_terminiert: !newVal }));
+              console.error("Terminiert update fehlgeschlagen:", e.message);
+            }
+          }}>
+          <span style={{ fontSize:22 }}>{localA.patient_terminiert ? "✅" : "⬜"}</span>
+          <div>
+            <div style={{ fontSize:15, fontWeight:700, color: localA.patient_terminiert ? C.ok : C.warn }}>Patient terminiert</div>
+            <div style={{ fontSize:12, color:C.fog, marginTop:2 }}>{localA.patient_terminiert ? "Einsetzen/Abholung geplant" : "Noch kein Termin vereinbart"}</div>
+          </div>
+        </div>
+      )}
 
       {/* Zurückgeschickt Alert */}
       {zurueck && (
@@ -3613,6 +3680,63 @@ function KalenderScreen({ auftraege, user }) {
   );
 }
 
+// ── RecoveryScreen ─────────────────────────────────────────────
+function RecoveryScreen({ recoveryToken, onDone }) {
+  const [pw,    setPw]    = useState("");
+  const [pw2,   setPw2]   = useState("");
+  const [err,   setErr]   = useState(null);
+  const [ok,    setOk]    = useState(false);
+  const [saving,setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setErr(null);
+    if (pw.length < 8) { setErr("Passwort muss mindestens 8 Zeichen haben"); return; }
+    if (pw !== pw2)    { setErr("Passwörter stimmen nicht überein"); return; }
+    setSaving(true);
+    try {
+      await sbAuth.updatePassword(recoveryToken, pw);
+      window.history.replaceState({}, "", "/");
+      setOk(true);
+      setTimeout(() => onDone(), 2000);
+    } catch(e) {
+      setErr(e?.message || "Fehler beim Speichern");
+    }
+    setSaving(false);
+  };
+
+  const inp = { width:"100%", background:C.parch, border:`1.5px solid ${C.sand}`, borderRadius:14, padding:"15px 16px", fontSize:16, boxSizing:"border-box", fontFamily:"inherit", color:C.ink };
+
+  return (
+    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:32, background:C.cream }}>
+      <div style={{ width:"100%", maxWidth:380 }}>
+        <div style={{ fontSize:28, fontWeight:700, fontFamily:"Georgia,serif", color:C.ink, marginBottom:8 }}>Neues Passwort</div>
+        <div style={{ fontSize:15, color:C.fog, marginBottom:28 }}>Bitte wähle ein sicheres Passwort mit mindestens 8 Zeichen.</div>
+        {ok ? (
+          <div style={{ background:C.okLt, color:C.ok, borderRadius:14, padding:"16px 18px", fontSize:15, fontWeight:600, textAlign:"center" }}>
+            ✅ Passwort wurde geändert.<br/>Bitte neu einloggen.
+          </div>
+        ) : (
+          <>
+            {err && <div style={{ background:C.errLt, color:C.err, borderRadius:12, padding:"12px 14px", marginBottom:14, fontSize:14, fontWeight:600 }}>{err}</div>}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:C.fog, textTransform:"uppercase", letterSpacing:"0.7px", marginBottom:6 }}>Neues Passwort</div>
+              <input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="Mindestens 8 Zeichen" style={inp} />
+            </div>
+            <div style={{ marginBottom:22 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:C.fog, textTransform:"uppercase", letterSpacing:"0.7px", marginBottom:6 }}>Passwort bestätigen</div>
+              <input type="password" value={pw2} onChange={e=>setPw2(e.target.value)} placeholder="Passwort wiederholen" style={inp} />
+            </div>
+            <button onClick={handleSave} disabled={saving} className="btn-press"
+              style={{ width:"100%", background:`linear-gradient(135deg,${C.sage},${C.sageDk})`, color:"#fff", border:"none", borderRadius:14, padding:16, fontSize:16, fontWeight:700, cursor:saving?"default":"pointer", boxShadow:`0 4px 18px ${C.sage}44` }}>
+              {saving ? "Speichern…" : "Passwort speichern"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // § MAIN APP — vollständige State-Logik + Navigation
 // ═══════════════════════════════════════════════════════════════════════
@@ -3622,6 +3746,8 @@ function App() {
   const [user,    setUser]    = useState(getUser);
   const [dark,    setDarkS]   = useState(getDark);
   const [sbSession,   setSbSession]   = useState(() => sbAuth.getSession());
+  const [isRecovery,   setIsRecovery]   = useState(false);
+  const [recoveryToken,setRecoveryToken] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [profileErr,  setProfileErr]  = useState(null);
   const toggleDark = () => { const n = !dark; setDark(n); setDarkS(n); };
@@ -3644,6 +3770,18 @@ function App() {
 
   useEffect(() => {
     Monitor.init();
+    // ── Recovery Link Detection ───────────────────────────────
+    const hash = window.location.hash;
+    if (hash && hash.includes("type=recovery")) {
+      const params = new URLSearchParams(hash.replace("#", ""));
+      const rToken = params.get("access_token");
+      if (rToken) {
+        setIsRecovery(true);
+        setRecoveryToken(rToken);
+        setAuthChecked(true);
+        return;
+      }
+    }
     (async () => {
       let s = sbAuth.getSession();
       if (s && isTokenExpired(s)) {
@@ -3704,6 +3842,8 @@ function App() {
   const dismissedRef    = useRef(new Set());
   const lastNotifRef    = useRef(0);
   const overlayShownRef = useRef(false);
+  const lastSoundKeyRef  = useRef(null);
+  const snoozedUntilRef  = useRef(0);
 
   // ─── UI ──────────────────────────────────────────────────────────────
   const [toast, setToast] = useState(null);
@@ -3767,14 +3907,22 @@ function App() {
       setMissed(filtered);
 
       if (filtered.length > 0) {
-        startAlertSound();
-        const now2 = Date.now();
-        if (now2 - lastNotifRef.current > 120000) {
-          lastNotifRef.current = now2;
-          pushNotif("⚠ Verpasste Nachrichten!", `${filtered.length} ungelesene Nachricht${filtered.length !== 1 ? "en" : ""}`, "chat");
+        if (Date.now() < snoozedUntilRef.current) {
+          // snoozed — Badge bleibt, kein Ton, kein Overlay
+        } else {
+          const newestKey = filtered[0]?.erstellt_am || null;
+          if (newestKey !== lastSoundKeyRef.current) {
+            lastSoundKeyRef.current = newestKey;
+            startAlertSound();
+          }
+          const now2 = Date.now();
+          if (now2 - lastNotifRef.current > 120000) {
+            lastNotifRef.current = now2;
+            pushNotif("⚠ Verpasste Nachrichten!", `${filtered.length} ungelesene Nachricht${filtered.length !== 1 ? "en" : ""}`, "chat");
+          }
+          if (!overlayShownRef.current) { overlayShownRef.current = true; setShowOverlay(true); }
         }
-        if (!overlayShownRef.current) { overlayShownRef.current = true; setShowOverlay(true); }
-      } else { stopAlertSound(); }
+      } else { stopAlertSound(); lastSoundKeyRef.current = null; }
     } catch {}
   }, [myName]);
 
@@ -3840,6 +3988,9 @@ function App() {
 
   // Supabase Auth is the only real gate
   if (!authChecked) return null;
+  if (isRecovery) {
+    return <RecoveryScreen recoveryToken={recoveryToken} onDone={() => { setIsRecovery(false); setRecoveryToken(null); }} />;
+  }
   if (!sbSession?.access_token) {
     return <AuthLoginScreen onAuthSuccess={s => { sbAuth.setSession(s); setSbSession(s); loadProfile(s); }} />;
   }
@@ -4025,8 +4176,9 @@ function App() {
         <MissedOverlay count={totalMissed}
           onGo={() => { setShowOverlay(false); setNavTab("chat"); stopAlertSound(); }}
           onLater={() => {
-            setShowOverlay(false); overlayShownRef.current = false;
-            setTimeout(() => { if (missed.length > 0) { overlayShownRef.current = true; setShowOverlay(true); } }, 5 * 60 * 1000);
+            snoozedUntilRef.current = Date.now() + 30 * 60 * 1000;
+            stopAlertSound();
+            setShowOverlay(false);
           }} />
       )}
       {showNotif && <NotifCenter onClose={() => setShowNotif(false)} />}
